@@ -1,14 +1,14 @@
 """
 framework/agents/catalogue.py
 ================================
-Complete specification of all 15 Procurement Intelligence Agents.
+Complete specification of all 15 Structural Intelligence Agents.
 
 This module is the authoritative agent catalogue — it defines the
 AgentMetadata, capabilities, and design contract for all 15 agents
 derived from "The 15 Structural Mysteries of Procurement AI".
 
 AGENT HIERARCHY:
-  ProcurementAgent (8 agents)
+  StructuralAgent (8 agents)
     - SupplierStressAgent        Mystery 02
     - ShouldCostAgent            Mystery 06
     - ValueRealisationAgent      Mystery 11
@@ -22,7 +22,7 @@ AGENT HIERARCHY:
     - InstitutionalMemoryAgent   Mystery 01
     - NegotiationIntelligenceAgent Mystery 03
     - WorkingCapitalOptimiser    Mystery 05
-    - StrategicProcurementAgent  (orchestrating agent)
+    - StrategicStructuralAgent  (orchestrating agent)
 
   ToolAgent (1 agent)
     - ERPSignalConnectorAgent    (data infrastructure)
@@ -491,7 +491,7 @@ ALL_AGENT_METADATA = [
 def print_catalogue() -> None:
     """Print a formatted summary of all 15 agents."""
     print(f"\n{'='*70}")
-    print("  SKEIN — Procurement Intelligence Agent Catalogue")
+    print("  SKEIN — Structural Intelligence Agent Catalogue")
     print(f"{'='*70}")
     for i, m in enumerate(ALL_AGENT_METADATA, 1):
         caps = ", ".join(c.name for c in m.capabilities)

@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import SUPPLIER_STRESS_METADATA, DECISION_AUDIT_METADATA
 from framework.core.registry import AgentRegistry, reset_registry
 from framework.core.types import (
@@ -40,7 +40,7 @@ from framework.orchestration.orchestrator import TaskOrchestrator, Workflow, Wor
 # Minimal test agent (no real LLM)
 # ---------------------------------------------------------------------------
 
-class _EchoAgent(ProcurementAgent):
+class _EchoAgent(StructuralAgent):
     """Stub agent that echoes payload fields as findings."""
 
     METADATA = AgentMetadata(
@@ -67,7 +67,7 @@ class _EchoAgent(ProcurementAgent):
         )]
 
 
-class _FailingAgent(ProcurementAgent):
+class _FailingAgent(StructuralAgent):
     """Stub agent that always fails."""
 
     METADATA = AgentMetadata(

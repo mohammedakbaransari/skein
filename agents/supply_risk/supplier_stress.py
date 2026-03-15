@@ -4,7 +4,7 @@ agents/supply_risk/supplier_stress.py
 Mystery 02 — Supplier Stress Signal
 
 Full production implementation of SupplierStressAgent.
-Inherits from ProcurementAgent — observe/reason/parse_findings pipeline.
+Inherits from StructuralAgent — observe/reason/parse_findings pipeline.
 
 ROLE:
   Early warning system for supplier financial or operational distress.
@@ -39,7 +39,7 @@ _REPO_ROOT = Path(__file__).parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import SUPPLIER_STRESS_METADATA
 from framework.core.types import (
     AgentCapability, AgentMetadata, DecisionAuthority,
@@ -296,11 +296,11 @@ Order by risk (Critical first)."""
 # Agent implementation
 # ---------------------------------------------------------------------------
 
-class SupplierStressAgent(ProcurementAgent):
+class SupplierStressAgent(StructuralAgent):
     """
-    Procurement Intelligence Agent — Mystery 02: Supplier Stress Signal.
+    Structural Intelligence Agent — Mystery 02: Supplier Stress Signal.
 
-    Implements ProcurementAgent.observe/reason/parse_findings.
+    Implements StructuralAgent.observe/reason/parse_findings.
     Registered in the global agent registry via METADATA class attribute.
     """
 

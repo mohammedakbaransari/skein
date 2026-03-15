@@ -25,7 +25,7 @@ _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import VALUE_REALISATION_METADATA
 from framework.core.types import Finding, Severity, Task
 from framework.reasoning.engine import ReasoningRequest, ReasoningStrategy
@@ -171,9 +171,9 @@ Return JSON:
 # Agent
 # ---------------------------------------------------------------------------
 
-class ValueRealisationAgent(ProcurementAgent):
+class ValueRealisationAgent(StructuralAgent):
     """
-    Procurement Intelligence Agent — Mystery 11: Value Realisation.
+    Structural Intelligence Agent — Mystery 11: Value Realisation.
 
     Continuously monitors the gap between negotiated savings commitments
     and actual P&L capture. Identifies specific leakage causes and

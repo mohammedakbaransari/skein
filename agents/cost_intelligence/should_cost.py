@@ -26,7 +26,7 @@ _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import SHOULD_COST_METADATA
 from framework.core.types import Finding, Severity, Task
 from framework.reasoning.engine import ReasoningRequest, ReasoningStrategy
@@ -186,9 +186,9 @@ Return JSON:
 # Agent
 # ---------------------------------------------------------------------------
 
-class ShouldCostAgent(ProcurementAgent):
+class ShouldCostAgent(StructuralAgent):
     """
-    Procurement Intelligence Agent — Mystery 06: Should-Cost Intelligence.
+    Structural Intelligence Agent — Mystery 06: Should-Cost Intelligence.
 
     Analyses commodity price movements to surface categories where suppliers
     have no cost basis for their current pricing — restoring the information

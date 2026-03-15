@@ -4,24 +4,25 @@ framework/reasoning/engine.py
 ReasoningEngine — pluggable reasoning strategy layer.
 
 WHY A SEPARATE REASONING LAYER:
-    Previously, agents directly invoked the LLM gateway, tightly coupling agent logic
-    to a specific prompt and output pattern. For a robust framework, we require:
-        - Multiple reasoning strategies (CoT, ReAct, Plan-Execute, Reflexion)
-        - Integration with frameworks (LangChain, LangGraph, CrewAI)
-        - Structured output enforcement
-        - Token counting and budget management
-        - Retry and escalation between strategies
+  The original POC called the LLM gateway directly from agents. This couples
+  agents to one specific calling pattern (system+user prompt, JSON output).
+  A real framework needs:
+    - Multiple reasoning strategies (CoT, ReAct, Plan-Execute, Reflexion)
+    - Framework integrations (LangChain, LangGraph, CrewAI)
+    - Structured output enforcement
+    - Token counting and budget management
+    - Retry with strategy escalation
 
 STRATEGY PATTERN:
-    ReasoningEngine holds a strategy (ReasoningStrategy).
-    Each strategy encapsulates a distinct approach to LLM interaction.
-    Agents select strategies via configuration; strategies can be swapped at runtime.
+  ReasoningEngine holds a strategy (ReasoningStrategy).
+  Each strategy encapsulates one approach to LLM calling.
+  Agents pick a strategy via config; framework can swap at runtime.
 
 INTEGRATIONS:
-    - NativeStrategy:     direct LLM gateway call (default, no extra dependencies)
-    - LangChainStrategy:  uses LangChain LCEL chains
-    - LangGraphStrategy:  uses LangGraph StateGraph for multi-step reasoning
-    - CrewAIStrategy:     delegates to a CrewAI crew
+  - NativeStrategy:     direct LLM gateway call (default, no extra deps)
+  - LangChainStrategy:  uses LangChain LCEL chains
+  - LangGraphStrategy:  uses LangGraph StateGraph for multi-step reasoning
+  - CrewAIStrategy:     delegates to a CrewAI crew
 """
 
 from __future__ import annotations

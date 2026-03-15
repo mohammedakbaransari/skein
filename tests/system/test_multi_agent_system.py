@@ -27,7 +27,7 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.core.registry import AgentRegistry
 from framework.core.types import (
     AgentMetadata, Finding, SessionId, Severity, Task,
@@ -40,7 +40,7 @@ from framework.orchestration.orchestrator import TaskOrchestrator, Workflow, Wor
 # Stubbed agents for system testing
 # ---------------------------------------------------------------------------
 
-class _SupplierAnalysisStub(ProcurementAgent):
+class _SupplierAnalysisStub(StructuralAgent):
     METADATA = AgentMetadata(
         agent_type="_SupplierAnalysisStub",
         display_name="Supplier Analysis Stub",
@@ -71,7 +71,7 @@ class _SupplierAnalysisStub(ProcurementAgent):
         return []
 
 
-class _CostAnalysisStub(ProcurementAgent):
+class _CostAnalysisStub(StructuralAgent):
     METADATA = AgentMetadata(
         agent_type="_CostAnalysisStub",
         display_name="Cost Analysis Stub",
@@ -106,7 +106,7 @@ class _CostAnalysisStub(ProcurementAgent):
         )]
 
 
-class _ReportStub(ProcurementAgent):
+class _ReportStub(StructuralAgent):
     METADATA = AgentMetadata(
         agent_type="_ReportStub",
         display_name="Report Generation Stub",
@@ -303,7 +303,7 @@ class TestAgentScalability(unittest.TestCase):
     Key insight: the registry + orchestrator design means adding a new agent
     is a 3-step process:
       1. Define AgentMetadata
-      2. Implement ProcurementAgent subclass
+      2. Implement StructuralAgent subclass
       3. Register with registry.register_class()
 
     No other framework code changes needed.

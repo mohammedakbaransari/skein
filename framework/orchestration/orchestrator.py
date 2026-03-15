@@ -3,6 +3,15 @@ framework/orchestration/orchestrator.py
 =========================================
 Task Orchestrator — coordinates multi-agent procurement workflows.
 
+WHY THE POC NEEDED THIS:
+  The original POC had no way for agents to:
+    - Call other agents
+    - Run in parallel
+    - Share results
+    - Enforce execution order (dependencies)
+  Real procurement analysis requires agent chains:
+    SupplierStress → DecisionAudit → BiasDetector → StrategicReport
+
 RESPONSIBILITIES:
   1. Accept task submissions (single or batch)
   2. Resolve dependency order (topological sort)

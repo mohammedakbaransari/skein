@@ -4,6 +4,7 @@ framework/memory/store.py
 Memory layer for the SKEIN framework.
 
 WHY MEMORY MATTERS FOR PROCUREMENT AI:
+  The original POC had zero memory — every agent run started cold.
   Real procurement intelligence requires:
     - Supplier history across multiple analysis runs
     - Learned negotiation patterns per counterparty

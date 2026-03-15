@@ -214,7 +214,7 @@ Return JSON:
 
 class DecisionAuditAgent(DecisionAgent):
     """
-    Procurement Intelligence Agent — Mystery 13: Decision Accountability.
+    Structural Intelligence Agent — Mystery 13: Decision Accountability.
 
     Inherits from DecisionAgent so its own outputs carry formal
     decision records (meta-accountability — the accountability agent

@@ -27,7 +27,7 @@ _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import COMPLIANCE_VERIFICATION_METADATA
 from framework.core.types import Finding, Severity, Task
 from framework.reasoning.engine import ReasoningRequest, ReasoningStrategy
@@ -118,9 +118,9 @@ Return JSON:
 }}"""
 
 
-class ComplianceVerificationAgent(ProcurementAgent):
+class ComplianceVerificationAgent(StructuralAgent):
     """
-    Procurement Intelligence Agent — Mystery 09: Compliance Theatre.
+    Structural Intelligence Agent — Mystery 09: Compliance Theatre.
 
     Surfaces the gap between certification claims and observable supply
     chain reality. Focuses on regulatory exposure under EU CSDDD/CSRD

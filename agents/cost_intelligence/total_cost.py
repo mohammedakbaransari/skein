@@ -25,7 +25,7 @@ _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import TOTAL_COST_METADATA
 from framework.core.types import Finding, Severity, Task
 from framework.reasoning.engine import ReasoningRequest, ReasoningStrategy
@@ -178,9 +178,9 @@ Return JSON:
 # Agent
 # ---------------------------------------------------------------------------
 
-class TotalCostIntelligenceAgent(ProcurementAgent):
+class TotalCostIntelligenceAgent(StructuralAgent):
     """
-    Procurement Intelligence Agent — Mystery 14: Total Cost Blindspot.
+    Structural Intelligence Agent — Mystery 14: Total Cost Blindspot.
 
     Identifies where procurement is optimising invoice price instead of
     true lifecycle cost, and quantifies the financial impact of that

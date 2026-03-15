@@ -26,7 +26,7 @@ _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from framework.agents.base import ProcurementAgent
+from framework.agents.base import StructuralAgent
 from framework.agents.catalogue import BIAS_DETECTOR_METADATA
 from framework.core.types import DecisionAuthority, Finding, Severity, Task
 from framework.reasoning.engine import ReasoningRequest, ReasoningStrategy
@@ -203,9 +203,9 @@ Return JSON:
 # Agent
 # ---------------------------------------------------------------------------
 
-class ProcurementBiasDetectorAgent(ProcurementAgent):
+class ProcurementBiasDetectorAgent(StructuralAgent):
     """
-    Procurement Intelligence Agent — Mystery 15: Incumbent Advantage Bias.
+    Structural Intelligence Agent — Mystery 15: Incumbent Advantage Bias.
 
     Surfaces systematic bias patterns that are invisible in individual
     decisions but statistically significant in aggregate. Prevents AI

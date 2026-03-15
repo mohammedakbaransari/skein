@@ -132,7 +132,7 @@ class AgentRegistry:
 
         Usage:
             @registry.agent
-            class SupplierStressAgent(ProcurementAgent):
+            class SupplierStressAgent(StructuralAgent):
                 ...
         """
         self.register_class(agent_class)

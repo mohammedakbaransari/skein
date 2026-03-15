@@ -4,7 +4,7 @@ agents/market_intelligence/agents.py
 Mysteries 01, 03, 04, 05, 07, 08, 10, 12
 
 Eight agents sharing the market_intelligence subpackage.
-Each is a complete ProcurementAgent / DecisionAgent implementation.
+Each is a complete StructuralAgent / DecisionAgent implementation.
 
 Design decision: Where several agents share a subpackage, each agent class
 is defined in this module and exported individually. For large agents that
@@ -24,7 +24,7 @@ _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from framework.agents.base import DecisionAgent, ProcurementAgent
+from framework.agents.base import DecisionAgent, StructuralAgent
 from framework.agents.catalogue import (
     DEMAND_INTELLIGENCE_METADATA,
     DECISION_COPILOT_METADATA,
@@ -155,7 +155,7 @@ tactical, and grounded in the data provided.
 Output ONLY valid JSON."""
 
 
-class NegotiationIntelligenceAgent(ProcurementAgent):
+class NegotiationIntelligenceAgent(StructuralAgent):
     """
     Mystery 03 — Counterparty Negotiation Intelligence Agent.
 
@@ -239,7 +239,7 @@ not after the RFP has produced a non-competitive result.
 Output ONLY valid JSON."""
 
 
-class SpecificationInflationAgent(ProcurementAgent):
+class SpecificationInflationAgent(StructuralAgent):
     """
     Mystery 04 — Specification Inflation Trap Agent.
 
@@ -416,7 +416,7 @@ order book by 3-6 months — enabling procurement to position before competitors
 have the same signal. Output ONLY valid JSON."""
 
 
-class DemandIntelligenceAgent(ProcurementAgent):
+class DemandIntelligenceAgent(StructuralAgent):
     """
     Mystery 07 — Pre-Signal Demand Intelligence Agent.
 
@@ -499,7 +499,7 @@ the buyer's product roadmap and strategic agenda.
 Output ONLY valid JSON."""
 
 
-class SupplierInnovationAgent(ProcurementAgent):
+class SupplierInnovationAgent(StructuralAgent):
     """
     Mystery 08 — Supplier Innovation Intelligence Agent.
 
@@ -577,7 +577,7 @@ and defer or auto-handle everything that does not require human attention.
 Output ONLY valid JSON."""
 
 
-class DecisionCopilotAgent(ProcurementAgent):
+class DecisionCopilotAgent(StructuralAgent):
     """
     Mystery 10 — Category Manager Decision Co-Pilot.
 
@@ -663,7 +663,7 @@ options. You think in options, not reactions.
 Output ONLY valid JSON."""
 
 
-class TradeScenarioAgent(ProcurementAgent):
+class TradeScenarioAgent(StructuralAgent):
     """
     Mystery 12 — Trade Policy Scenario Intelligence Agent.
 

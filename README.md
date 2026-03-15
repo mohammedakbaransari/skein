@@ -13,7 +13,7 @@
 ---
 
 **Author:** Mohammed Akbar Ansari
-Enterprise Data & AI · Platform, Data & Modernization · Multi-Cloud Architecture. 
+Senior Cloud Solutions Architect · Enterprise AI · Multi-Cloud Architecture
 18+ years in enterprise architecture, procurement technology, and agentic AI systems
 
 [GitHub](https://github.com/mohammedakbaransari) · [LinkedIn](https://linkedin.com/in/akbaransari)

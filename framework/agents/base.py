@@ -4,15 +4,20 @@ framework/agents/base.py
 BaseAgent — root of the SKEIN framework agent hierarchy.
 
 WHY THIS MATTERS:
+  The original POC had a single AgentBase class that mixed three concerns:
+    1. The Observe→Reason→Act loop  (execution concern)
+    2. LLM calling                  (infrastructure concern)
+    3. Trace logging                (observability concern)
+
   A production framework separates these into:
     - BaseAgent:         Lifecycle, identity, plugin hooks
-    - ProcurementAgent:  Domain-specific patterns for procurement tasks
+    - StructuralAgent:  Domain-specific patterns for procurement tasks
     - ToolAgent:         Agents that execute external tools
     - DecisionAgent:     Agents with structured decision authority
 
 AGENT HIERARCHY:
     BaseAgent
-    ├── ProcurementAgent    (domain: procurement analysis)
+    ├── StructuralAgent    (domain: procurement analysis)
     │   ├── SupplierStressAgent
     │   ├── ShouldCostAgent
     │   ├── BiasDetectorAgent
@@ -21,7 +26,7 @@ AGENT HIERARCHY:
     │   ├── ERPConnectorAgent
     │   └── MarketDataAgent
     └── DecisionAgent       (domain: structured decision support)
-        └── StrategicProcurementAgent
+        └── StrategicStructuralAgent
 
 LIFECYCLE HOOKS:
     on_startup()      — called once after construction
@@ -347,12 +352,12 @@ class BaseAgent(abc.ABC):
 
 
 # ---------------------------------------------------------------------------
-# ProcurementAgent — domain base for all procurement intelligence agents
+# StructuralAgent — domain base for all structural intelligence agents
 # ---------------------------------------------------------------------------
 
-class ProcurementAgent(BaseAgent, abc.ABC):
+class StructuralAgent(BaseAgent, abc.ABC):
     """
-    Domain-specific base for procurement intelligence agents.
+    Domain-specific base for structural intelligence agents.
 
     Adds on top of BaseAgent:
       - observe() / reason() / parse_findings() pipeline
@@ -415,7 +420,7 @@ class ProcurementAgent(BaseAgent, abc.ABC):
 
         except Exception as exc:
             self._log.error(
-                "[agent=%s] [task=%s] ProcurementAgent pipeline failed: %s",
+                "[agent=%s] [task=%s] StructuralAgent pipeline failed: %s",
                 self.agent_id, task.task_id, exc, exc_info=True,
             )
             return AgentResult(
@@ -567,11 +572,11 @@ class ToolAgent(BaseAgent, abc.ABC):
 # DecisionAgent — agents with structured decision authority
 # ---------------------------------------------------------------------------
 
-class DecisionAgent(ProcurementAgent, abc.ABC):
+class DecisionAgent(StructuralAgent, abc.ABC):
     """
     Agent with formal decision-making authority.
 
-    Extends ProcurementAgent with:
+    Extends StructuralAgent with:
       - Structured decision records (not just findings)
       - Decision rationale capture (for Mystery 13 compliance)
       - Human-in-the-loop escalation hooks
@@ -587,7 +592,7 @@ class DecisionAgent(ProcurementAgent, abc.ABC):
 
     def execute(self, task: Task) -> AgentResult:
         """
-        ProcurementAgent pipeline + decision authority layer.
+        StructuralAgent pipeline + decision authority layer.
         Low-confidence or critical findings trigger escalation.
         """
         result = super().execute(task)
