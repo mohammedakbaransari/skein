@@ -1,0 +1,40 @@
+# SKEIN — SKEIN — Structural Knowledge and Enterprise Intelligence Network
+# Python dependencies
+# ================================================
+
+# ── Core (always required) ─────────────────────────────────────────────────────
+pyyaml>=6.0                   # YAML config file parsing
+
+# ── LLM Providers — install only the provider you use ─────────────────────────
+# Default: Ollama (local, no API key needed)
+requests>=2.31.0              # HTTP client — required for Ollama provider
+
+# Cloud providers (uncomment as needed):
+# anthropic>=0.40.0           # Anthropic Claude (claude-opus-4-5, claude-sonnet-4-6)
+# openai>=1.30.0              # OpenAI GPT-4o or Azure OpenAI
+
+# ── Reasoning Framework Integrations (optional) ───────────────────────────────
+# Uncomment to enable the corresponding ReasoningStrategy:
+
+# LangChain LCEL strategy:
+# langchain>=0.3.0
+# langchain-core>=0.3.0
+# langchain-anthropic>=0.3.0  # for Anthropic via LangChain
+# langchain-openai>=0.2.0     # for OpenAI via LangChain
+# langchain-community>=0.3.0  # for Ollama via LangChain
+
+# LangGraph multi-step strategy:
+# langgraph>=0.2.0
+
+# CrewAI multi-agent strategy:
+# crewai>=0.80.0
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+# Built-in runner: python -m unittest discover -s tests -p "test_*.py"
+# pytest is optional:
+# pytest>=8.0.0
+# pytest-cov>=5.0.0
+
+# ── Development ────────────────────────────────────────────────────────────────
+# mypy>=1.8.0                 # type checking
+# ruff>=0.3.0                 # linting + formatting

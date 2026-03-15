@@ -1,0 +1,722 @@
+[
+  {
+    "decision_id": "DEC-0001",
+    "date": "2024-01-13",
+    "category": "Raw Materials",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "rejected",
+    "ai_score": 92.9,
+    "human_override": true,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.38,
+      "quality": 0.33,
+      "delivery": 0.25,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0002",
+    "date": "2024-08-28",
+    "category": "Packaging",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "escalated",
+    "ai_score": 92.5,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.36,
+      "quality": 0.36,
+      "delivery": 0.15,
+      "risk": 0.05
+    }
+  },
+  {
+    "decision_id": "DEC-0003",
+    "date": "2024-02-05",
+    "category": "Logistics",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 67.0,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.38,
+      "quality": 0.4,
+      "delivery": 0.21,
+      "risk": 0.19
+    }
+  },
+  {
+    "decision_id": "DEC-0004",
+    "date": "2024-05-15",
+    "category": "MRO",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "rejected",
+    "ai_score": 80.0,
+    "human_override": true,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.46,
+      "quality": 0.29,
+      "delivery": 0.3,
+      "risk": 0.07
+    }
+  },
+  {
+    "decision_id": "DEC-0005",
+    "date": "2024-01-01",
+    "category": "MRO",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "awarded",
+    "ai_score": 85.5,
+    "human_override": false,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.49,
+      "quality": 0.35,
+      "delivery": 0.14,
+      "risk": 0.11
+    }
+  },
+  {
+    "decision_id": "DEC-0006",
+    "date": "2024-03-04",
+    "category": "IT Hardware",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 83.5,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.38,
+      "quality": 0.28,
+      "delivery": 0.16,
+      "risk": 0.07
+    }
+  },
+  {
+    "decision_id": "DEC-0007",
+    "date": "2024-06-03",
+    "category": "Logistics",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "rejected",
+    "ai_score": 81.5,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.34,
+      "quality": 0.36,
+      "delivery": 0.22,
+      "risk": 0.1
+    }
+  },
+  {
+    "decision_id": "DEC-0008",
+    "date": "2024-03-27",
+    "category": "Logistics",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "rejected",
+    "ai_score": 77.0,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.42,
+      "quality": 0.22,
+      "delivery": 0.29,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0009",
+    "date": "2024-01-24",
+    "category": "Raw Materials",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "rejected",
+    "ai_score": 61.3,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.31,
+      "quality": 0.28,
+      "delivery": 0.23,
+      "risk": 0.08
+    }
+  },
+  {
+    "decision_id": "DEC-0010",
+    "date": "2024-12-01",
+    "category": "Logistics",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "escalated",
+    "ai_score": 65.5,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.48,
+      "quality": 0.36,
+      "delivery": 0.14,
+      "risk": 0.17
+    }
+  },
+  {
+    "decision_id": "DEC-0011",
+    "date": "2024-03-03",
+    "category": "Packaging",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "rejected",
+    "ai_score": 94.5,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.5,
+      "quality": 0.32,
+      "delivery": 0.29,
+      "risk": 0.18
+    }
+  },
+  {
+    "decision_id": "DEC-0012",
+    "date": "2024-08-31",
+    "category": "IT Hardware",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "escalated",
+    "ai_score": 93.6,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.36,
+      "quality": 0.36,
+      "delivery": 0.2,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0013",
+    "date": "2024-06-20",
+    "category": "Packaging",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 65.1,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.35,
+      "quality": 0.34,
+      "delivery": 0.24,
+      "risk": 0.06
+    }
+  },
+  {
+    "decision_id": "DEC-0014",
+    "date": "2024-04-15",
+    "category": "MRO",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "escalated",
+    "ai_score": 72.9,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.49,
+      "quality": 0.2,
+      "delivery": 0.28,
+      "risk": 0.14
+    }
+  },
+  {
+    "decision_id": "DEC-0015",
+    "date": "2024-07-18",
+    "category": "Packaging",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 67.8,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.45,
+      "quality": 0.31,
+      "delivery": 0.22,
+      "risk": 0.08
+    }
+  },
+  {
+    "decision_id": "DEC-0016",
+    "date": "2024-07-18",
+    "category": "MRO",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "escalated",
+    "ai_score": 75.9,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.33,
+      "quality": 0.29,
+      "delivery": 0.13,
+      "risk": 0.14
+    }
+  },
+  {
+    "decision_id": "DEC-0017",
+    "date": "2024-08-07",
+    "category": "Logistics",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "awarded",
+    "ai_score": 58.6,
+    "human_override": true,
+    "final_outcome": "awarded",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.38,
+      "quality": 0.24,
+      "delivery": 0.17,
+      "risk": 0.16
+    }
+  },
+  {
+    "decision_id": "DEC-0018",
+    "date": "2024-02-11",
+    "category": "MRO",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "escalated",
+    "ai_score": 65.8,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.49,
+      "quality": 0.24,
+      "delivery": 0.11,
+      "risk": 0.19
+    }
+  },
+  {
+    "decision_id": "DEC-0019",
+    "date": "2024-01-11",
+    "category": "Packaging",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "rejected",
+    "ai_score": 63.6,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.32,
+      "quality": 0.39,
+      "delivery": 0.19,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0020",
+    "date": "2024-03-24",
+    "category": "Raw Materials",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "awarded",
+    "ai_score": 88.4,
+    "human_override": false,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.42,
+      "quality": 0.38,
+      "delivery": 0.18,
+      "risk": 0.19
+    }
+  },
+  {
+    "decision_id": "DEC-0021",
+    "date": "2024-06-03",
+    "category": "Packaging",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "rejected",
+    "ai_score": 59.4,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.5,
+      "quality": 0.36,
+      "delivery": 0.17,
+      "risk": 0.11
+    }
+  },
+  {
+    "decision_id": "DEC-0022",
+    "date": "2024-08-03",
+    "category": "Packaging",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 55.5,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.47,
+      "quality": 0.34,
+      "delivery": 0.19,
+      "risk": 0.16
+    }
+  },
+  {
+    "decision_id": "DEC-0023",
+    "date": "2024-10-30",
+    "category": "IT Hardware",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "escalated",
+    "ai_score": 75.0,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.32,
+      "quality": 0.38,
+      "delivery": 0.15,
+      "risk": 0.12
+    }
+  },
+  {
+    "decision_id": "DEC-0024",
+    "date": "2024-06-15",
+    "category": "MRO",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "awarded",
+    "ai_score": 76.3,
+    "human_override": false,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.37,
+      "quality": 0.38,
+      "delivery": 0.24,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0025",
+    "date": "2024-07-27",
+    "category": "IT Hardware",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "rejected",
+    "ai_score": 58.7,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.43,
+      "quality": 0.3,
+      "delivery": 0.26,
+      "risk": 0.06
+    }
+  },
+  {
+    "decision_id": "DEC-0026",
+    "date": "2024-10-24",
+    "category": "Logistics",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "rejected",
+    "ai_score": 68.2,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.5,
+      "quality": 0.31,
+      "delivery": 0.17,
+      "risk": 0.12
+    }
+  },
+  {
+    "decision_id": "DEC-0027",
+    "date": "2024-04-08",
+    "category": "MRO",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "rejected",
+    "ai_score": 60.2,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.44,
+      "quality": 0.24,
+      "delivery": 0.25,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0028",
+    "date": "2024-07-03",
+    "category": "Packaging",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "rejected",
+    "ai_score": 67.7,
+    "human_override": true,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.49,
+      "quality": 0.31,
+      "delivery": 0.24,
+      "risk": 0.07
+    }
+  },
+  {
+    "decision_id": "DEC-0029",
+    "date": "2024-08-28",
+    "category": "Packaging",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "awarded",
+    "ai_score": 79.7,
+    "human_override": false,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.35,
+      "quality": 0.37,
+      "delivery": 0.12,
+      "risk": 0.06
+    }
+  },
+  {
+    "decision_id": "DEC-0030",
+    "date": "2024-10-15",
+    "category": "Packaging",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "awarded",
+    "ai_score": 61.5,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.45,
+      "quality": 0.32,
+      "delivery": 0.26,
+      "risk": 0.08
+    }
+  },
+  {
+    "decision_id": "DEC-0031",
+    "date": "2024-10-28",
+    "category": "Logistics",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "escalated",
+    "ai_score": 67.8,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.42,
+      "quality": 0.35,
+      "delivery": 0.29,
+      "risk": 0.08
+    }
+  },
+  {
+    "decision_id": "DEC-0032",
+    "date": "2024-03-29",
+    "category": "MRO",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "awarded",
+    "ai_score": 61.8,
+    "human_override": false,
+    "final_outcome": "escalated",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.42,
+      "quality": 0.26,
+      "delivery": 0.15,
+      "risk": 0.16
+    }
+  },
+  {
+    "decision_id": "DEC-0033",
+    "date": "2024-11-16",
+    "category": "Packaging",
+    "supplier_id": "SUP-004",
+    "supplier_name": "FastForward Logistics",
+    "ai_recommendation": "rejected",
+    "ai_score": 94.7,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.32,
+      "quality": 0.24,
+      "delivery": 0.13,
+      "risk": 0.09
+    }
+  },
+  {
+    "decision_id": "DEC-0034",
+    "date": "2024-06-06",
+    "category": "Packaging",
+    "supplier_id": "SUP-002",
+    "supplier_name": "Meridian Industrial",
+    "ai_recommendation": "awarded",
+    "ai_score": 62.1,
+    "human_override": false,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.39,
+      "quality": 0.29,
+      "delivery": 0.16,
+      "risk": 0.11
+    }
+  },
+  {
+    "decision_id": "DEC-0035",
+    "date": "2024-11-02",
+    "category": "IT Hardware",
+    "supplier_id": "SUP-003",
+    "supplier_name": "GlobalTech Parts",
+    "ai_recommendation": "escalated",
+    "ai_score": 73.8,
+    "human_override": true,
+    "final_outcome": "escalated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.35,
+      "quality": 0.22,
+      "delivery": 0.29,
+      "risk": 0.18
+    }
+  },
+  {
+    "decision_id": "DEC-0036",
+    "date": "2024-03-30",
+    "category": "MRO",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "awarded",
+    "ai_score": 87.8,
+    "human_override": false,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.34,
+      "quality": 0.32,
+      "delivery": 0.23,
+      "risk": 0.12
+    }
+  },
+  {
+    "decision_id": "DEC-0037",
+    "date": "2024-06-13",
+    "category": "Logistics",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 72.6,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.44,
+      "quality": 0.26,
+      "delivery": 0.29,
+      "risk": 0.17
+    }
+  },
+  {
+    "decision_id": "DEC-0038",
+    "date": "2024-06-14",
+    "category": "Logistics",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "awarded",
+    "ai_score": 68.5,
+    "human_override": true,
+    "final_outcome": "awarded",
+    "rationale_logged": false,
+    "factors_weighted": {
+      "price": 0.46,
+      "quality": 0.2,
+      "delivery": 0.27,
+      "risk": 0.12
+    }
+  },
+  {
+    "decision_id": "DEC-0039",
+    "date": "2024-09-12",
+    "category": "Raw Materials",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "re-evaluated",
+    "ai_score": 81.8,
+    "human_override": false,
+    "final_outcome": "re-evaluated",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.41,
+      "quality": 0.39,
+      "delivery": 0.19,
+      "risk": 0.15
+    }
+  },
+  {
+    "decision_id": "DEC-0040",
+    "date": "2024-06-08",
+    "category": "Packaging",
+    "supplier_id": "SUP-001",
+    "supplier_name": "Apex Components",
+    "ai_recommendation": "rejected",
+    "ai_score": 85.5,
+    "human_override": false,
+    "final_outcome": "rejected",
+    "rationale_logged": true,
+    "factors_weighted": {
+      "price": 0.5,
+      "quality": 0.38,
+      "delivery": 0.19,
+      "risk": 0.07
+    }
+  }
+]

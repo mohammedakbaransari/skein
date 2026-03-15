@@ -1,0 +1,98 @@
+[
+  {
+    "month": "2024-01",
+    "steel_hrc_usd_ton": 641.85,
+    "copper_lme_usd_ton": 9031.94,
+    "hdpe_resin_usd_ton": 1091.77,
+    "labour_index_mfg": 100.78,
+    "energy_index": 98.91
+  },
+  {
+    "month": "2024-01",
+    "steel_hrc_usd_ton": 680.56,
+    "copper_lme_usd_ton": 8813.71,
+    "hdpe_resin_usd_ton": 1060.45,
+    "labour_index_mfg": 104.54,
+    "energy_index": 98.07
+  },
+  {
+    "month": "2024-03",
+    "steel_hrc_usd_ton": 618.75,
+    "copper_lme_usd_ton": 8759.6,
+    "hdpe_resin_usd_ton": 873.15,
+    "labour_index_mfg": 103.14,
+    "energy_index": 106.31
+  },
+  {
+    "month": "2024-03",
+    "steel_hrc_usd_ton": 665.38,
+    "copper_lme_usd_ton": 8728.7,
+    "hdpe_resin_usd_ton": 1029.97,
+    "labour_index_mfg": 103.24,
+    "energy_index": 103.49
+  },
+  {
+    "month": "2024-04",
+    "steel_hrc_usd_ton": 656.6,
+    "copper_lme_usd_ton": 8957.13,
+    "hdpe_resin_usd_ton": 950.38,
+    "labour_index_mfg": 105.94,
+    "energy_index": 107.15
+  },
+  {
+    "month": "2024-05",
+    "steel_hrc_usd_ton": 615.43,
+    "copper_lme_usd_ton": 8979.38,
+    "hdpe_resin_usd_ton": 1113.79,
+    "labour_index_mfg": 108.79,
+    "energy_index": 109.46
+  },
+  {
+    "month": "2024-06",
+    "steel_hrc_usd_ton": 618.1,
+    "copper_lme_usd_ton": 8927.2,
+    "hdpe_resin_usd_ton": 1079.19,
+    "labour_index_mfg": 109.87,
+    "energy_index": 112.49
+  },
+  {
+    "month": "2024-07",
+    "steel_hrc_usd_ton": 612.0,
+    "copper_lme_usd_ton": 8515.77,
+    "hdpe_resin_usd_ton": 1110.95,
+    "labour_index_mfg": 109.13,
+    "energy_index": 111.67
+  },
+  {
+    "month": "2024-08",
+    "steel_hrc_usd_ton": 666.63,
+    "copper_lme_usd_ton": 8385.71,
+    "hdpe_resin_usd_ton": 1110.46,
+    "labour_index_mfg": 109.73,
+    "energy_index": 107.44
+  },
+  {
+    "month": "2024-09",
+    "steel_hrc_usd_ton": 700.45,
+    "copper_lme_usd_ton": 8331.56,
+    "hdpe_resin_usd_ton": 1107.12,
+    "labour_index_mfg": 106.83,
+    "energy_index": 116.27
+  },
+  {
+    "month": "2024-10",
+    "steel_hrc_usd_ton": 708.19,
+    "copper_lme_usd_ton": 8341.68,
+    "hdpe_resin_usd_ton": 1017.93,
+    "labour_index_mfg": 109.35,
+    "energy_index": 114.03
+  },
+  {
+    "month": "2024-11",
+    "steel_hrc_usd_ton": 672.25,
+    "copper_lme_usd_ton": 7798.02,
+    "hdpe_resin_usd_ton": 945.8,
+    "labour_index_mfg": 112.8,
+    "energy_index": 112.76
+  }
+]

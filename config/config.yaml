@@ -1,0 +1,94 @@
+# SKEIN — SKEIN — Structural Knowledge and Enterprise Intelligence Network
+# Configuration File
+# ================================================
+# Priority: environment variables > this file > class defaults
+#
+# Environment variable equivalents for every setting are noted inline.
+# All env vars are prefixed: LLM_*, SECURITY_*, AGENT_*, SKEIN_*
+
+# ── LLM Provider ──────────────────────────────────────────────────────────────
+# Default: Ollama (local, no API key required)
+# Env: LLM_PROVIDER, LLM_MODEL, LLM_BASE_URL, LLM_API_KEY
+
+llm:
+  provider: ollama                          # ollama | openai | anthropic | azure
+  model: llama3.1
+  base_url: http://localhost:11434
+  api_key: null                             # Set via env LLM_API_KEY
+  temperature: 0.1
+  max_tokens: 2048
+  timeout_seconds: 120
+  max_retries: 3
+  retry_backoff_seconds: 2.0
+
+  # ── Switch to Anthropic Claude ──────────────────────────────────────────────
+  # provider: anthropic
+  # model: claude-opus-4-5
+  # api_key: ${ANTHROPIC_API_KEY}
+
+  # ── Switch to OpenAI ────────────────────────────────────────────────────────
+  # provider: openai
+  # model: gpt-4o
+  # api_key: ${OPENAI_API_KEY}
+
+  # ── Switch to Azure OpenAI ───────────────────────────────────────────────────
+  # provider: azure
+  # model: gpt-4o
+  # base_url: https://your-instance.openai.azure.com/
+  # api_key: ${AZURE_OPENAI_API_KEY}
+
+# ── Reasoning Strategy ─────────────────────────────────────────────────────────
+# Controls which reasoning pattern agents use.
+# Env: SKEIN_REASONING_STRATEGY
+
+reasoning:
+  strategy: chain_of_thought          # chain_of_thought | react | plan_and_execute | structured
+  enable_langchain: false             # Set true + pip install langchain langchain-core
+  enable_langgraph: false             # Set true + pip install langgraph
+  enable_crewai: false                # Set true + pip install crewai
+
+# ── Orchestration ──────────────────────────────────────────────────────────────
+# Env: SKEIN_MAX_WORKERS, SKEIN_WORKFLOW_TIMEOUT
+
+orchestration:
+  max_workers: 4                      # Parallel task execution limit per workflow
+  default_task_timeout_seconds: 300   # Per-task timeout
+  default_workflow_timeout_seconds: 600
+
+# ── Memory ──────────────────────────────────────────────────────────────────────
+# Env: SKEIN_MEMORY_MAX_ENTRIES, SKEIN_INSTITUTIONAL_MEMORY_PATH
+
+memory:
+  working_memory_max_entries: 10000
+  institutional_memory_path: data/institutional_knowledge.json  # null to disable
+
+# ── Governance ─────────────────────────────────────────────────────────────────
+# All governance logs are hash-chained JSONL. Set log_dir to enable.
+# Env: SKEIN_GOVERNANCE_LOG_DIR
+
+governance:
+  log_dir: logs/governance            # null to disable
+  # Creates 4 streams:
+  #   logs/governance/executions.jsonl
+  #   logs/governance/decisions.jsonl
+  #   logs/governance/escalations.jsonl
+  #   logs/governance/audit.jsonl
+
+# ── Security ───────────────────────────────────────────────────────────────────
+# Env: SECURITY_MAX_INPUT_LEN, SECURITY_RATE_LIMIT_RPM, SECURITY_PII_REDACT
+
+security:
+  enable_input_sanitisation: true
+  enable_pii_redaction: true
+  max_input_length: 50000
+  max_output_length: 20000
+  max_json_depth: 10
+  rate_limit_requests_per_minute: 60
+
+# ── Agent Defaults ─────────────────────────────────────────────────────────────
+# Env: AGENT_DRY_RUN, AGENT_VERBOSE, AGENT_TRACE_DIR
+
+agent:
+  dry_run: false                      # true = use DryRunReasoningEngine, skip LLM
+  verbose_logging: true
+  trace_dir: logs/traces              # null to disable per-run trace files

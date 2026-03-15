@@ -1,0 +1,242 @@
+[
+  {
+    "contract_id": "CTR-001",
+    "category": "Packaging",
+    "month": "2024-01",
+    "negotiated_savings_pct": 14.0,
+    "actual_savings_pct": 14,
+    "leakage_pct": 0.0,
+    "leakage_amount_usd": 0.0,
+    "leakage_causes": [
+      "spec_change",
+      "maverick_spend"
+    ],
+    "monthly_spend": 200000.0
+  },
+  {
+    "contract_id": "CTR-001",
+    "category": "Packaging",
+    "month": "2024-03",
+    "negotiated_savings_pct": 14.0,
+    "actual_savings_pct": 13.5,
+    "leakage_pct": 0.5,
+    "leakage_amount_usd": 1000.0,
+    "leakage_causes": [
+      "spec_change",
+      "maverick_spend"
+    ],
+    "monthly_spend": 200000.0
+  },
+  {
+    "contract_id": "CTR-001",
+    "category": "Packaging",
+    "month": "2024-03",
+    "negotiated_savings_pct": 14.0,
+    "actual_savings_pct": 12.8,
+    "leakage_pct": 1.2,
+    "leakage_amount_usd": 2400.0,
+    "leakage_causes": [
+      "spec_change",
+      "maverick_spend"
+    ],
+    "monthly_spend": 200000.0
+  },
+  {
+    "contract_id": "CTR-001",
+    "category": "Packaging",
+    "month": "2024-04",
+    "negotiated_savings_pct": 14.0,
+    "actual_savings_pct": 10.2,
+    "leakage_pct": 3.8,
+    "leakage_amount_usd": 7600.0,
+    "leakage_causes": [
+      "spec_change",
+      "maverick_spend"
+    ],
+    "monthly_spend": 200000.0
+  },
+  {
+    "contract_id": "CTR-001",
+    "category": "Packaging",
+    "month": "2024-05",
+    "negotiated_savings_pct": 14.0,
+    "actual_savings_pct": 9.8,
+    "leakage_pct": 4.2,
+    "leakage_amount_usd": 8400.0,
+    "leakage_causes": [
+      "spec_change",
+      "maverick_spend"
+    ],
+    "monthly_spend": 200000.0
+  },
+  {
+    "contract_id": "CTR-001",
+    "category": "Packaging",
+    "month": "2024-06",
+    "negotiated_savings_pct": 14.0,
+    "actual_savings_pct": 8.1,
+    "leakage_pct": 5.9,
+    "leakage_amount_usd": 11800.0,
+    "leakage_causes": [
+      "spec_change",
+      "maverick_spend"
+    ],
+    "monthly_spend": 200000.0
+  },
+  {
+    "contract_id": "CTR-002",
+    "category": "Industrial Gases",
+    "month": "2024-01",
+    "negotiated_savings_pct": 9.5,
+    "actual_savings_pct": 9.5,
+    "leakage_pct": 0.0,
+    "leakage_amount_usd": 0.0,
+    "leakage_causes": [],
+    "monthly_spend": 150000.0
+  },
+  {
+    "contract_id": "CTR-002",
+    "category": "Industrial Gases",
+    "month": "2024-03",
+    "negotiated_savings_pct": 9.5,
+    "actual_savings_pct": 9.4,
+    "leakage_pct": 0.1,
+    "leakage_amount_usd": 150.0,
+    "leakage_causes": [],
+    "monthly_spend": 150000.0
+  },
+  {
+    "contract_id": "CTR-002",
+    "category": "Industrial Gases",
+    "month": "2024-03",
+    "negotiated_savings_pct": 9.5,
+    "actual_savings_pct": 9.5,
+    "leakage_pct": 0.0,
+    "leakage_amount_usd": 0.0,
+    "leakage_causes": [],
+    "monthly_spend": 150000.0
+  },
+  {
+    "contract_id": "CTR-002",
+    "category": "Industrial Gases",
+    "month": "2024-04",
+    "negotiated_savings_pct": 9.5,
+    "actual_savings_pct": 9.3,
+    "leakage_pct": 0.2,
+    "leakage_amount_usd": 300.0,
+    "leakage_causes": [],
+    "monthly_spend": 150000.0
+  },
+  {
+    "contract_id": "CTR-002",
+    "category": "Industrial Gases",
+    "month": "2024-05",
+    "negotiated_savings_pct": 9.5,
+    "actual_savings_pct": 9.4,
+    "leakage_pct": 0.1,
+    "leakage_amount_usd": 150.0,
+    "leakage_causes": [],
+    "monthly_spend": 150000.0
+  },
+  {
+    "contract_id": "CTR-002",
+    "category": "Industrial Gases",
+    "month": "2024-06",
+    "negotiated_savings_pct": 9.5,
+    "actual_savings_pct": 9.2,
+    "leakage_pct": 0.3,
+    "leakage_amount_usd": 450.0,
+    "leakage_causes": [],
+    "monthly_spend": 150000.0
+  },
+  {
+    "contract_id": "CTR-003",
+    "category": "Logistics 3PL",
+    "month": "2024-01",
+    "negotiated_savings_pct": 11.0,
+    "actual_savings_pct": 11,
+    "leakage_pct": 0.0,
+    "leakage_amount_usd": 0.0,
+    "leakage_causes": [
+      "volume_shortfall",
+      "erp_not_updated",
+      "maverick_spend"
+    ],
+    "monthly_spend": 466667.0
+  },
+  {
+    "contract_id": "CTR-003",
+    "category": "Logistics 3PL",
+    "month": "2024-03",
+    "negotiated_savings_pct": 11.0,
+    "actual_savings_pct": 10.5,
+    "leakage_pct": 0.5,
+    "leakage_amount_usd": 2333.0,
+    "leakage_causes": [
+      "volume_shortfall",
+      "erp_not_updated",
+      "maverick_spend"
+    ],
+    "monthly_spend": 466667.0
+  },
+  {
+    "contract_id": "CTR-003",
+    "category": "Logistics 3PL",
+    "month": "2024-03",
+    "negotiated_savings_pct": 11.0,
+    "actual_savings_pct": 9.8,
+    "leakage_pct": 1.2,
+    "leakage_amount_usd": 5600.0,
+    "leakage_causes": [
+      "volume_shortfall",
+      "erp_not_updated",
+      "maverick_spend"
+    ],
+    "monthly_spend": 466667.0
+  },
+  {
+    "contract_id": "CTR-003",
+    "category": "Logistics 3PL",
+    "month": "2024-04",
+    "negotiated_savings_pct": 11.0,
+    "actual_savings_pct": 8.2,
+    "leakage_pct": 2.8,
+    "leakage_amount_usd": 13067.0,
+    "leakage_causes": [
+      "volume_shortfall",
+      "erp_not_updated",
+      "maverick_spend"
+    ],
+    "monthly_spend": 466667.0
+  },
+  {
+    "contract_id": "CTR-003",
+    "category": "Logistics 3PL",
+    "month": "2024-05",
+    "negotiated_savings_pct": 11.0,
+    "actual_savings_pct": 7.5,
+    "leakage_pct": 3.5,
+    "leakage_amount_usd": 16333.0,
+    "leakage_causes": [
+      "volume_shortfall",
+      "erp_not_updated",
+      "maverick_spend"
+    ],
+    "monthly_spend": 466667.0
+  },
+  {
+    "contract_id": "CTR-003",
+    "category": "Logistics 3PL",
+    "month": "2024-06",
+    "negotiated_savings_pct": 11.0,
+    "actual_savings_pct": 6.1,
+    "leakage_pct": 4.9,
+    "leakage_amount_usd": 22867.0,
+    "leakage_causes": [
+      "volume_shortfall",
+      "erp_not_updated",
+      "maverick_spend"
+    ],
+    "monthly_spend": 466667.0
+  }
+]
