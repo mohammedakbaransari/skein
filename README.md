@@ -279,9 +279,14 @@ This framework accompanies:
 **"The 15 Structural Mysteries of Procurement AI: A Research Agenda for the Next Generation of Procurement Intelligence Systems"**
 Mohammed Akbar Ansari, Independent Researcher, Navi Mumbai, India (2026)
 
-- SSRN: [link once live]
-- arXiv: [link once endorsed]
-- GitHub: https://github.com/mohammedakbaransari/skein
+- Zenodo (DOI): https://zenodo.org/records/19184631  
+- ResearchGate: https://www.researchgate.net/publication/403046977  
+
+The research identifies fifteen structural challenges that explain why enterprise AI systems in procurement consistently fail to achieve production-scale impact.
+
+It argues that the widely observed gap between AI pilot rates (49%) and production deployment (4%) is not a technology limitation, but a structural intelligence gap — a failure to identify and address the underlying problems that determine system performance.
+
+SKEIN (Structural Knowledge and Enterprise Intelligence Network) is introduced as the architectural response: a domain-agnostic, multi-agent framework designed to operate on these structural problems through cross-system reasoning, institutional memory, and decision intelligence.
 
 **Disclaimer:** This is independent research. No employer, vendor, or customer affiliation. All views are my own.
 
