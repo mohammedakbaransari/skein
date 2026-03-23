@@ -45,36 +45,6 @@ Each of the 15 SKEIN agents targets one structural mystery:
   </a>
 </p>
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   SKEIN Framework                        │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │  Resilience  │  │Observability │  │   Platform   │  │
-│  │ RetryExecutor│  │StructuredLog │  │  Databricks  │  │
-│  │CircuitBreaker│  │  Prometheus  │  │  MS Fabric   │  │
-│  │  AgentPool   │  │HealthServer  │  │  Kubernetes  │  │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │
-│         │                 │                  │          │
-│  ┌──────▼─────────────────▼──────────────────▼───────┐  │
-│  │              TaskOrchestrator (DAG)                │  │
-│  │   Kahn topological sort · ThreadPoolExecutor       │  │
-│  │   Per-task retry · Correlation context prop.       │  │
-│  └──────────────────────┬─────────────────────────────┘  │
-│                         │                                │
-│  ┌──────────────────────▼─────────────────────────────┐  │
-│  │               Agent Layer (15 agents)              │  │
-│  │   BaseAgent → StructuralAgent → DecisionAgent      │  │
-│  │   observe() · reason() · parse_findings()          │  │
-│  └──────┬────────────────────────┬────────────────────┘  │
-│         │                        │                        │
-│  ┌──────▼──────┐        ┌────────▼───────┐              │
-│  │  Reasoning  │        │    Memory      │              │
-│  │  Engine     │        │ Working (LRU)  │              │
-│  │  +retry+cb  │        │ Institutional  │              │
-│  └─────────────┘        └────────────────┘              │
-└─────────────────────────────────────────────────────────┘
-```
 
 ---
 
