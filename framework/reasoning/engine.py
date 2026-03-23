@@ -1,71 +1,85 @@
 """
 framework/reasoning/engine.py
 ==============================
-ReasoningEngine — pluggable reasoning strategy layer.
+ReasoningEngine — pluggable reasoning strategy layer with production resilience.
 
-WHY A SEPARATE REASONING LAYER:
-  The original POC called the LLM gateway directly from agents. This couples
-  agents to one specific calling pattern (system+user prompt, JSON output).
-  A real framework needs:
-    - Multiple reasoning strategies (CoT, ReAct, Plan-Execute, Reflexion)
-    - Framework integrations (LangChain, LangGraph, CrewAI)
-    - Structured output enforcement
-    - Token counting and budget management
-    - Retry with strategy escalation
+CHANGES FROM v1
+===============
+- Retry policy: exponential backoff with jitter on every LLM call
+- Circuit breaker: per-provider failure isolation
+- Metrics: every call recorded (duration, tokens, success/failure)
+- Correlation context: trace_id injected into every LLM call
+- Structured output enforcement via output_schema
+- Fallback chain: primary → native (configurable)
+- Token budget management: logs tokens per call
 
-STRATEGY PATTERN:
-  ReasoningEngine holds a strategy (ReasoningStrategy).
-  Each strategy encapsulates one approach to LLM calling.
-  Agents pick a strategy via config; framework can swap at runtime.
+STRATEGY PATTERN
+================
+ReasoningEngine holds one primary strategy.
+Each strategy encapsulates one LLM calling pattern.
+All strategies get retry and circuit breaker wrapping from the engine layer
+(not inside strategies themselves — strategies stay simple).
 
-INTEGRATIONS:
-  - NativeStrategy:     direct LLM gateway call (default, no extra deps)
-  - LangChainStrategy:  uses LangChain LCEL chains
-  - LangGraphStrategy:  uses LangGraph StateGraph for multi-step reasoning
-  - CrewAIStrategy:     delegates to a CrewAI crew
+INTEGRATIONS
+============
+- NativeStrategy:     direct LLM gateway call (default, no extra deps)
+- LangChainStrategy:  LCEL chains
+- LangGraphStrategy:  LangGraph StateGraph for multi-step reasoning
+- CrewAIStrategy:     CrewAI crew delegation
 """
 
 from __future__ import annotations
 
-import abc
 import json
 import logging
+import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol
 
-from framework.core.types import ReasoningStrategy
+from framework.core.types import CorrelationContext, ReasoningStrategy, RetryConfig
+from framework.resilience.retry import (
+    CircuitOpenError, RetryExecutor, get_circuit_registry,
+)
+from framework.observability.metrics import get_metrics
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 
 log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Reasoning request / response
+# Request / Response
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ReasoningRequest:
     """Input to a reasoning strategy."""
-    system_prompt:    str
-    user_prompt:      str
-    observations:     Dict[str, Any]
-    strategy:         ReasoningStrategy = ReasoningStrategy.CHAIN_OF_THOUGHT
-    output_schema:    Optional[Dict] = None   # JSON schema for structured output
-    max_tokens:       int = 2048
-    temperature:      float = 0.1
-    session_id:       str = "default"
+    system_prompt:  str
+    user_prompt:    str
+    observations:   Dict[str, Any]
+    strategy:       ReasoningStrategy = ReasoningStrategy.CHAIN_OF_THOUGHT
+    output_schema:  Optional[Dict]   = None
+    max_tokens:     int              = 2048
+    temperature:    float            = 0.1
+    session_id:     str              = "default"
+    context:        CorrelationContext = field(default_factory=CorrelationContext.new)
 
 
 @dataclass
 class ReasoningResponse:
     """Output from a reasoning strategy."""
-    content:        str
-    strategy_used:  ReasoningStrategy
-    input_tokens:   Optional[int] = None
-    output_tokens:  Optional[int] = None
-    latency_ms:     Optional[float] = None
-    model_used:     str = ""
-    raw_response:   Optional[Any] = None   # provider-specific raw response
-    parsed_output:  Optional[Dict] = None  # if output_schema was provided
+    content:       str
+    strategy_used: ReasoningStrategy
+    input_tokens:  Optional[int]  = None
+    output_tokens: Optional[int]  = None
+    latency_ms:    Optional[float] = None
+    model_used:    str             = ""
+    raw_response:  Optional[Any]  = None
+    parsed_output: Optional[Dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -73,42 +87,34 @@ class ReasoningResponse:
 # ---------------------------------------------------------------------------
 
 class ReasoningStrategyProtocol(Protocol):
-    """Protocol all reasoning strategies must satisfy."""
-
-    def reason(self, request: ReasoningRequest) -> ReasoningResponse:
-        """Execute reasoning and return a structured response."""
-        ...
+    def reason(self, request: ReasoningRequest) -> ReasoningResponse: ...
+    @property
+    def provider_name(self) -> str: ...
 
 
 # ---------------------------------------------------------------------------
-# Native strategy — direct LLM gateway (default, no extra dependencies)
+# Native strategy — direct LLM gateway
 # ---------------------------------------------------------------------------
 
 class NativeReasoningStrategy:
-    """
-    Direct LLM gateway call.
-    Works with Ollama, Anthropic, OpenAI, Azure out of the box.
-    No LangChain dependency.
-    """
+    """Direct LLM gateway call. Works with Ollama, Anthropic, OpenAI, Azure."""
 
     def __init__(self, gateway) -> None:
         self._gateway = gateway
 
+    @property
+    def provider_name(self) -> str:
+        return getattr(self._gateway, "provider", "native")
+
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
-        import time
-        t0 = time.monotonic()
+        t0   = time.monotonic()
         resp = self._gateway.complete(
             system_prompt=request.system_prompt,
             user_prompt=request.user_prompt,
             session_id=request.session_id,
         )
         elapsed = (time.monotonic() - t0) * 1000
-
-        # If output schema requested, try to parse
-        parsed = None
-        if request.output_schema:
-            parsed = _try_parse_json(resp.content)
-
+        parsed = _try_parse_json(resp.content) if request.output_schema else None
         return ReasoningResponse(
             content=resp.content,
             strategy_used=request.strategy,
@@ -121,48 +127,38 @@ class NativeReasoningStrategy:
 
 
 # ---------------------------------------------------------------------------
-# LangChain strategy — uses LCEL runnable chains
+# LangChain strategy
 # ---------------------------------------------------------------------------
 
 class LangChainReasoningStrategy:
-    """
-    LangChain LCEL-based reasoning strategy.
-
-    Requires: pip install langchain langchain-core
-
-    Creates a chain: prompt | llm | output_parser
-    Supports structured output via LangChain's JsonOutputParser.
-    """
+    """LangChain LCEL-based reasoning. Requires: pip install langchain langchain-core"""
 
     def __init__(self, llm_config) -> None:
         self._llm_config = llm_config
         self._chain = None
         self._build_chain()
 
+    @property
+    def provider_name(self) -> str:
+        return getattr(self._llm_config, "provider", "langchain")
+
     def _build_chain(self) -> None:
         try:
             from langchain_core.prompts import ChatPromptTemplate
             from langchain_core.output_parsers import StrOutputParser
-            from langchain_core.runnables import RunnablePassthrough
-
             llm = self._get_langchain_llm()
-            self._prompt_template = ChatPromptTemplate.from_messages([
+            prompt = ChatPromptTemplate.from_messages([
                 ("system", "{system_prompt}"),
                 ("human",  "{user_prompt}"),
             ])
-            self._chain = self._prompt_template | llm | StrOutputParser()
+            self._chain = prompt | llm | StrOutputParser()
             log.info("LangChain LCEL chain built successfully")
         except ImportError:
-            log.warning(
-                "LangChain not installed — NativeReasoningStrategy will be used as fallback. "
-                "Install with: pip install langchain langchain-core"
-            )
+            log.warning("LangChain not installed — will use native fallback")
             self._chain = None
 
     def _get_langchain_llm(self):
-        """Build the LangChain LLM object from our config."""
         provider = self._llm_config.provider
-
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(
@@ -191,13 +187,7 @@ class LangChainReasoningStrategy:
 
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
         if self._chain is None:
-            # Graceful degradation: warn and return empty
-            log.warning("LangChain chain unavailable — returning empty response")
-            return ReasoningResponse(
-                content="",
-                strategy_used=request.strategy,
-            )
-        import time
+            raise RuntimeError("LangChain chain not available")
         t0 = time.monotonic()
         content = self._chain.invoke({
             "system_prompt": request.system_prompt,
@@ -213,30 +203,25 @@ class LangChainReasoningStrategy:
 
 
 # ---------------------------------------------------------------------------
-# LangGraph strategy — multi-step stateful reasoning
+# LangGraph strategy
 # ---------------------------------------------------------------------------
 
 class LangGraphReasoningStrategy:
-    """
-    LangGraph StateGraph-based reasoning for multi-step procurement analysis.
-
-    Requires: pip install langgraph langchain-core
-
-    Implements a 3-node graph:
-      analyse → critique → refine
-    Useful for complex procurement decisions requiring self-correction.
-    """
+    """LangGraph StateGraph for multi-step self-correcting reasoning."""
 
     def __init__(self, llm_config) -> None:
         self._llm_config = llm_config
         self._graph = self._build_graph()
 
+    @property
+    def provider_name(self) -> str:
+        return getattr(self._llm_config, "provider", "langgraph")
+
     def _build_graph(self):
         try:
             from langgraph.graph import StateGraph, END
             from langchain_core.messages import HumanMessage, SystemMessage
-            from typing import TypedDict, Annotated
-            import operator
+            from typing import TypedDict
 
             class GraphState(TypedDict):
                 system_prompt: str
@@ -248,68 +233,54 @@ class LangGraphReasoningStrategy:
 
             llm = LangChainReasoningStrategy(self._llm_config)._get_langchain_llm()
 
-            def analyse_node(state: GraphState) -> dict:
+            def analyse(state: GraphState) -> dict:
                 resp = llm.invoke([
                     SystemMessage(content=state["system_prompt"]),
                     HumanMessage(content=state["user_prompt"]),
                 ])
                 return {"analysis": resp.content, "iteration": 1}
 
-            def critique_node(state: GraphState) -> dict:
-                critique_prompt = (
-                    f"Review this procurement analysis for completeness and accuracy:\n\n"
-                    f"{state['analysis']}\n\n"
-                    f"Identify any gaps, missing evidence, or logical errors."
-                )
-                resp = llm.invoke([HumanMessage(content=critique_prompt)])
+            def critique(state: GraphState) -> dict:
+                resp = llm.invoke([HumanMessage(content=(
+                    f"Review this procurement analysis:\n\n{state['analysis']}\n\n"
+                    "Identify gaps, missing evidence, or logical errors."
+                ))])
                 return {"critique": resp.content}
 
-            def refine_node(state: GraphState) -> dict:
-                refine_prompt = (
-                    f"Original analysis:\n{state['analysis']}\n\n"
-                    f"Critique:\n{state['critique']}\n\n"
-                    f"Produce an improved final analysis addressing the critique. "
-                    f"Output valid JSON only."
-                )
-                resp = llm.invoke([HumanMessage(content=refine_prompt)])
+            def refine(state: GraphState) -> dict:
+                resp = llm.invoke([HumanMessage(content=(
+                    f"Original:\n{state['analysis']}\n\nCritique:\n{state['critique']}\n\n"
+                    "Produce improved analysis. Output valid JSON only."
+                ))])
                 return {"final_output": resp.content}
 
             def should_refine(state: GraphState) -> str:
-                # Only refine once — prevent infinite loops
                 return "refine" if state.get("iteration", 0) < 1 else END
 
-            graph = StateGraph(GraphState)
-            graph.add_node("analyse", analyse_node)
-            graph.add_node("critique", critique_node)
-            graph.add_node("refine", refine_node)
-            graph.set_entry_point("analyse")
-            graph.add_edge("analyse", "critique")
-            graph.add_conditional_edges("critique", should_refine)
-            graph.add_edge("refine", END)
-            return graph.compile()
-
+            g = StateGraph(GraphState)
+            g.add_node("analyse", analyse)
+            g.add_node("critique", critique)
+            g.add_node("refine",   refine)
+            g.set_entry_point("analyse")
+            g.add_edge("analyse", "critique")
+            g.add_conditional_edges("critique", should_refine)
+            g.add_edge("refine", END)
+            return g.compile()
         except ImportError:
-            log.warning(
-                "LangGraph not installed — NativeReasoningStrategy fallback active. "
-                "Install with: pip install langgraph"
-            )
+            log.warning("LangGraph not installed — native fallback active")
             return None
 
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
         if self._graph is None:
-            return ReasoningResponse(content="", strategy_used=request.strategy)
-        import time
+            raise RuntimeError("LangGraph not available")
         t0 = time.monotonic()
-        final_state = self._graph.invoke({
+        state = self._graph.invoke({
             "system_prompt": request.system_prompt,
             "user_prompt":   request.user_prompt,
-            "analysis":      "",
-            "critique":      "",
-            "final_output":  "",
-            "iteration":     0,
+            "analysis": "", "critique": "", "final_output": "", "iteration": 0,
         })
         elapsed = (time.monotonic() - t0) * 1000
-        content = final_state.get("final_output") or final_state.get("analysis", "")
+        content = state.get("final_output") or state.get("analysis", "")
         return ReasoningResponse(
             content=content,
             strategy_used=request.strategy,
@@ -319,32 +290,23 @@ class LangGraphReasoningStrategy:
 
 
 # ---------------------------------------------------------------------------
-# CrewAI strategy — multi-agent crew delegation
+# CrewAI strategy
 # ---------------------------------------------------------------------------
 
 class CrewAIReasoningStrategy:
-    """
-    CrewAI-based reasoning: delegates to a specialist crew.
-
-    Requires: pip install crewai
-
-    Useful when a procurement task benefits from multiple specialised
-    AI roles (analyst + critic + writer) working together.
-    Each SKEIN agent can define its own CrewAI crew composition.
-    """
+    """CrewAI multi-agent crew delegation."""
 
     def __init__(self, crew_factory) -> None:
-        """
-        Args:
-            crew_factory: Callable that returns a configured crewai.Crew instance.
-        """
         self._crew_factory = crew_factory
+
+    @property
+    def provider_name(self) -> str:
+        return "crewai"
 
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
         try:
             crew = self._crew_factory(request)
-            import time
-            t0     = time.monotonic()
+            t0 = time.monotonic()
             result = crew.kickoff()
             elapsed = (time.monotonic() - t0) * 1000
             content = str(result)
@@ -355,86 +317,107 @@ class CrewAIReasoningStrategy:
                 parsed_output=_try_parse_json(content),
             )
         except ImportError:
-            log.warning("CrewAI not installed. pip install crewai")
-            return ReasoningResponse(content="", strategy_used=request.strategy)
-        except Exception as exc:
-            log.error("CrewAI reasoning failed: %s", exc, exc_info=True)
-            return ReasoningResponse(
-                content="",
-                strategy_used=request.strategy,
-            )
+            raise RuntimeError("CrewAI not installed. pip install crewai")
 
 
 # ---------------------------------------------------------------------------
-# ReasoningEngine — facade wiring strategies together
+# ReasoningEngine — facade with retry, circuit breaker, metrics
 # ---------------------------------------------------------------------------
 
 class ReasoningEngine:
     """
-    Facade for reasoning strategies.
+    Facade for reasoning strategies with full production resilience.
 
-    Agents interact with ReasoningEngine, not individual strategies.
+    Every reason() call:
+      1. Checks circuit breaker (fast-fail if provider is down)
+      2. Executes with retry (exponential backoff + jitter)
+      3. Records metrics (duration, tokens, success/failure)
+      4. Falls back to native strategy on exhausted retries
+
+    Agents interact only with ReasoningEngine — never with strategies directly.
     Strategy can be swapped at runtime without changing agent code.
-
-    Fallback chain: primary strategy → NativeReasoningStrategy
     """
 
     def __init__(
         self,
-        primary_strategy: ReasoningStrategyProtocol,
-        fallback_gateway=None,
+        primary_strategy:  ReasoningStrategyProtocol,
+        fallback_gateway=  None,
+        retry_config:      RetryConfig = RetryConfig.conservative(),
+        circuit_failure_threshold: int   = 5,
+        circuit_recovery_s:        float = 30.0,
     ) -> None:
-        self._primary = primary_strategy
+        self._primary  = primary_strategy
         self._fallback = (
             NativeReasoningStrategy(fallback_gateway) if fallback_gateway else None
+        )
+        self._retry    = RetryExecutor(retry_config)
+        self._metrics  = get_metrics()
+
+        provider = getattr(primary_strategy, "provider_name", "unknown")
+        self._circuit = get_circuit_registry().get_or_create(
+            name=f"llm_{provider}",
+            failure_threshold=circuit_failure_threshold,
+            recovery_timeout_s=circuit_recovery_s,
         )
 
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
         """
-        Execute reasoning with primary strategy.
-        Falls back to NativeReasoningStrategy on error.
+        Execute reasoning with retry and circuit breaker protection.
+
+        Returns the first successful ReasoningResponse.
+        Falls back to native strategy if primary exhausts retries.
+        Raises the last exception if both primary and fallback fail.
         """
+        provider = getattr(self._primary, "provider_name", "unknown")
+        t_start  = time.monotonic()
+
+        def _call() -> ReasoningResponse:
+            return self._circuit.call(self._primary.reason, request)
+
         try:
-            response = self._primary.reason(request)
-            if response.content:
-                return response
-            raise ValueError("Primary strategy returned empty content")
-        except Exception as exc:
+            response = self._retry.execute(_call)
+            duration = (time.monotonic() - t_start) * 1000
+            tokens   = (response.input_tokens or 0) + (response.output_tokens or 0)
+            self._metrics.llm_call_recorded(provider, succeeded=True,
+                                             duration_ms=duration, tokens=tokens)
+            if not response.content:
+                raise ValueError("Primary strategy returned empty content")
+            return response
+
+        except (CircuitOpenError, Exception) as exc:
+            duration = (time.monotonic() - t_start) * 1000
+            self._metrics.llm_call_recorded(provider, succeeded=False, duration_ms=duration)
+
             if self._fallback:
                 log.warning(
-                    "Primary reasoning strategy failed (%s) — using fallback", exc
+                    "[reasoning] Primary strategy failed (%s) — using fallback: %s",
+                    type(exc).__name__, exc,
                 )
-                return self._fallback.reason(request)
+                try:
+                    return self._fallback.reason(request)
+                except Exception as fallback_exc:
+                    log.error("[reasoning] Fallback also failed: %s", fallback_exc)
+                    raise fallback_exc from exc
             raise
 
     @classmethod
-    def native(cls, gateway) -> "ReasoningEngine":
-        """Factory: native strategy with no fallback."""
-        return cls(NativeReasoningStrategy(gateway))
+    def native(cls, gateway, **kwargs) -> "ReasoningEngine":
+        return cls(NativeReasoningStrategy(gateway), **kwargs)
 
     @classmethod
-    def langchain(cls, llm_config, fallback_gateway=None) -> "ReasoningEngine":
-        """Factory: LangChain strategy with native fallback."""
-        return cls(
-            LangChainReasoningStrategy(llm_config),
-            fallback_gateway=fallback_gateway,
-        )
+    def langchain(cls, llm_config, fallback_gateway=None, **kwargs) -> "ReasoningEngine":
+        return cls(LangChainReasoningStrategy(llm_config),
+                   fallback_gateway=fallback_gateway, **kwargs)
 
     @classmethod
-    def langgraph(cls, llm_config, fallback_gateway=None) -> "ReasoningEngine":
-        """Factory: LangGraph strategy with native fallback."""
-        return cls(
-            LangGraphReasoningStrategy(llm_config),
-            fallback_gateway=fallback_gateway,
-        )
+    def langgraph(cls, llm_config, fallback_gateway=None, **kwargs) -> "ReasoningEngine":
+        return cls(LangGraphReasoningStrategy(llm_config),
+                   fallback_gateway=fallback_gateway, **kwargs)
 
     @classmethod
-    def crewai(cls, crew_factory, fallback_gateway=None) -> "ReasoningEngine":
-        """Factory: CrewAI strategy with native fallback."""
-        return cls(
-            CrewAIReasoningStrategy(crew_factory),
-            fallback_gateway=fallback_gateway,
-        )
+    def crewai(cls, crew_factory, fallback_gateway=None, **kwargs) -> "ReasoningEngine":
+        return cls(CrewAIReasoningStrategy(crew_factory),
+                   fallback_gateway=fallback_gateway, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +425,6 @@ class ReasoningEngine:
 # ---------------------------------------------------------------------------
 
 def _try_parse_json(text: str) -> Optional[Dict]:
-    """Try to parse JSON from LLM text. Returns None on failure."""
     import re
     clean = text.strip()
     fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", clean, re.DOTALL)

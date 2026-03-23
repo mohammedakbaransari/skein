@@ -1,0 +1,89 @@
+# deploy/docker/docker-compose.yml
+# ==================================
+# SKEIN local development stack
+#
+# Starts:
+#   skein       — SKEIN agent server (DryRun mode by default)
+#   ollama      — local LLM (optional, comment out to use cloud provider)
+#
+# Usage:
+#   docker-compose -f deploy/docker/docker-compose.yml up
+#   docker-compose -f deploy/docker/docker-compose.yml up skein  # server only
+#   docker-compose -f deploy/docker/docker-compose.yml down
+#
+# To use Anthropic instead of Ollama:
+#   LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... docker-compose up skein
+
+version: "3.9"
+
+services:
+
+  # ── SKEIN Agent Server ─────────────────────────────────────────────────────
+  skein:
+    build:
+      context:    ../..
+      dockerfile: deploy/docker/Dockerfile
+    image:  skein-framework:latest
+    ports:
+      - "8080:8080"    # health + metrics endpoint
+    environment:
+      # LLM provider — switch to anthropic/openai for production
+      LLM_PROVIDER:          ${LLM_PROVIDER:-ollama}
+      LLM_MODEL:             ${LLM_MODEL:-llama3.1}
+      LLM_BASE_URL:          ${LLM_BASE_URL:-http://ollama:11434}
+      LLM_API_KEY:           ${LLM_API_KEY:-}
+
+      # SKEIN settings
+      SKEIN_MAX_WORKERS:     ${SKEIN_MAX_WORKERS:-4}
+      SKEIN_LOG_LEVEL:       ${SKEIN_LOG_LEVEL:-INFO}
+      SKEIN_LOG_JSON:        ${SKEIN_LOG_JSON:-false}
+      SKEIN_HEALTH_PORT:     8080
+      SKEIN_GOVERNANCE_LOG_DIR: /app/logs/governance
+
+      # DryRun mode — set false to use live LLM
+      AGENT_DRY_RUN:         ${AGENT_DRY_RUN:-true}
+
+    volumes:
+      - skein-logs:/app/logs
+      - ./../../config:/app/config:ro
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 15s
+      timeout:   5s
+      retries:   3
+      start_period: 20s
+
+    depends_on:
+      ollama:
+        condition: service_started
+
+    restart: unless-stopped
+
+  # ── Ollama local LLM (optional) ───────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+    # GPU support (uncomment if available):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    profiles:
+      - with-ollama     # only starts with: docker-compose --profile with-ollama up
+
+volumes:
+  skein-logs:
+    driver: local
+  ollama-models:
+    driver: local

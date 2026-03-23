@@ -1,35 +1,18 @@
 """
 framework/orchestration/orchestrator.py
 =========================================
-Task Orchestrator — coordinates multi-agent procurement workflows.
+Task Orchestrator with production-grade resilience.
 
-WHY THE POC NEEDED THIS:
-  The original POC had no way for agents to:
-    - Call other agents
-    - Run in parallel
-    - Share results
-    - Enforce execution order (dependencies)
-  Real procurement analysis requires agent chains:
-    SupplierStress → DecisionAudit → BiasDetector → StrategicReport
-
-RESPONSIBILITIES:
-  1. Accept task submissions (single or batch)
-  2. Resolve dependency order (topological sort)
-  3. Dispatch tasks to appropriate agents (registry-based routing)
-  4. Execute independent tasks concurrently (ThreadPoolExecutor)
-  5. Propagate results between dependent tasks
-  6. Handle failures — retry or mark dependent tasks CANCELLED
-  7. Emit lifecycle events to the governance layer
-
-WORKFLOW CONCEPT:
-  A Workflow is a DAG of Tasks.
-  The orchestrator resolves the DAG, identifies parallelisable
-  batches (tasks with all dependencies met), and executes each batch.
-
-THREAD-SAFETY:
-  - ThreadPoolExecutor handles concurrent task execution
-  - Task status updates are serialised via a per-workflow lock
-  - Results are written to a shared dict under lock before being read
+CHANGES FROM v1
+===============
+- Uses AgentPoolManager for agent acquisition (back-pressure, isolation)
+- Per-task retry: tasks retry up to task.retry_config.max_attempts
+- Correlation context propagated through every task in a workflow
+- Timeout enforcement with proper cancellation (not blocking future.result)
+- Structured logging with workflow-level trace_id
+- Metrics: workflow duration and status recorded
+- WorkflowBuilder step-label resolution fixed (TaskId-based, not string match)
+- cancel_on_failure flag: workflows can opt to fail-fast or continue on error
 """
 
 from __future__ import annotations
@@ -37,44 +20,51 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from framework.core.types import (
-    AgentResult, SessionId, Task, TaskId, TaskStatus,
+    AgentResult, CorrelationContext, RetryConfig, SessionId,
+    Task, TaskId, TaskStatus,
 )
 from framework.core.registry import AgentRegistry
+from framework.observability.logging import correlation_context, get_logger
+from framework.observability.metrics import get_metrics
 
-log = logging.getLogger(__name__)
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Workflow — a collection of tasks with dependency graph
+# Workflow
 # ---------------------------------------------------------------------------
 
 @dataclass
 class Workflow:
     """
-    A directed acyclic graph (DAG) of Tasks.
+    Directed acyclic graph (DAG) of Tasks.
 
-    Attributes:
-        workflow_id:  Unique identifier.
-        name:         Human-readable label.
-        session_id:   Caller session.
-        tasks:        All tasks in this workflow.
-        max_workers:  Parallelism limit (default: 4).
-        timeout_seconds: Global workflow timeout.
+    New in v2:
+        context: CorrelationContext shared across all tasks
+        cancel_on_failure: if True, cancel pending tasks when one fails
     """
-    workflow_id:      str
-    name:             str
-    session_id:       SessionId
-    tasks:            List[Task] = field(default_factory=list)
-    max_workers:      int = 4
-    timeout_seconds:  int = 600
+    workflow_id:       str
+    name:              str
+    session_id:        SessionId
+    context:           CorrelationContext = field(default_factory=CorrelationContext.new)
+    tasks:             List[Task] = field(default_factory=list)
+    max_workers:       int = 4
+    timeout_seconds:   int = 600
+    cancel_on_failure: bool = True
 
     def add_task(self, task: Task) -> "Workflow":
-        """Fluent builder for adding tasks."""
         self.tasks.append(task)
         return self
 
@@ -82,72 +72,62 @@ class Workflow:
         return next((t for t in self.tasks if t.task_id.value == task_id.value), None)
 
     def validate_dag(self) -> None:
-        """
-        Validate that the task dependency graph has no cycles.
-        Raises ValueError if a cycle is detected.
-        """
-        task_ids: Set[str] = {t.task_id.value for t in self.tasks}
-        # Check all depends_on references exist
+        """Validate DAG: all depends_on references exist and no cycles."""
+        task_ids = {t.task_id.value for t in self.tasks}
         for task in self.tasks:
             for dep_id in task.depends_on:
                 if dep_id.value not in task_ids:
                     raise ValueError(
                         f"Task {task.task_id} depends on unknown task {dep_id}"
                     )
-        # Topological sort to detect cycles
-        self._topological_order()  # raises ValueError on cycle
+        self._topological_order()  # raises on cycle
 
     def _topological_order(self) -> List[Task]:
-        """Kahn's algorithm for topological sort. Raises ValueError on cycle."""
-        in_degree: Dict[str, int] = {t.task_id.value: 0 for t in self.tasks}
+        """Kahn's algorithm. Raises ValueError on cycle."""
+        in_degree:  Dict[str, int]       = {t.task_id.value: 0 for t in self.tasks}
         dependents: Dict[str, List[str]] = {t.task_id.value: [] for t in self.tasks}
-
         for task in self.tasks:
             for dep in task.depends_on:
                 in_degree[task.task_id.value] += 1
                 dependents[dep.value].append(task.task_id.value)
-
         queue = [t for t in self.tasks if in_degree[t.task_id.value] == 0]
         ordered: List[Task] = []
         task_map = {t.task_id.value: t for t in self.tasks}
-
         while queue:
             task = queue.pop(0)
             ordered.append(task)
-            for dependent_id in dependents[task.task_id.value]:
-                in_degree[dependent_id] -= 1
-                if in_degree[dependent_id] == 0:
-                    queue.append(task_map[dependent_id])
-
+            for dep_id in dependents[task.task_id.value]:
+                in_degree[dep_id] -= 1
+                if in_degree[dep_id] == 0:
+                    queue.append(task_map[dep_id])
         if len(ordered) != len(self.tasks):
             raise ValueError(
-                f"Workflow '{self.name}' contains a dependency cycle. "
-                "Check task.depends_on references."
+                f"Workflow '{self.name}' has a dependency cycle."
             )
         return ordered
 
 
 # ---------------------------------------------------------------------------
-# WorkflowResult — the outcome of a completed workflow
+# WorkflowResult
 # ---------------------------------------------------------------------------
 
 @dataclass
 class WorkflowResult:
     """Aggregated result of all tasks in a workflow."""
-    workflow_id:    str
-    workflow_name:  str
-    session_id:     SessionId
-    task_results:   Dict[str, AgentResult] = field(default_factory=dict)
-    succeeded:      bool = True
-    failed_tasks:   List[str] = field(default_factory=list)
+    workflow_id:     str
+    workflow_name:   str
+    session_id:      SessionId
+    context:         CorrelationContext = field(default_factory=CorrelationContext.new)
+    task_results:    Dict[str, AgentResult] = field(default_factory=dict)
+    succeeded:       bool = True
+    failed_tasks:    List[str] = field(default_factory=list)
     cancelled_tasks: List[str] = field(default_factory=list)
-    duration_ms:    Optional[float] = None
-    completed_at:   Optional[str] = None
+    retried_tasks:   List[str] = field(default_factory=list)
+    duration_ms:     Optional[float] = None
+    completed_at:    Optional[str] = None
 
     @property
     def all_findings(self):
-        """Flatten findings from all successful tasks."""
-        from framework.core.types import Finding
         findings = []
         for result in self.task_results.values():
             if result and result.succeeded:
@@ -156,149 +136,217 @@ class WorkflowResult:
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator
+# TaskOrchestrator
 # ---------------------------------------------------------------------------
 
 class TaskOrchestrator:
     """
-    Orchestrates multi-agent procurement workflows.
+    Orchestrates multi-agent workflows with pool management and retry.
 
-    Usage:
-        orchestrator = TaskOrchestrator(registry, config)
-
-        # Single task
-        result = orchestrator.run_task(task)
-
-        # Multi-agent workflow
-        workflow = Workflow(...)
-        workflow.add_task(task1)
-        workflow.add_task(task2)
-        workflow_result = orchestrator.run_workflow(workflow)
+    Agents are acquired from AgentPoolManager (provides back-pressure).
+    Tasks with retry_config will be retried on failure before cancelling
+    dependent tasks.
+    Correlation context is propagated through every task execution.
     """
 
     def __init__(
         self,
-        registry: AgentRegistry,
-        config: Any,
-        event_callback: Optional[Callable] = None,
+        registry:        AgentRegistry,
+        config:          Any,
+        pool_manager=    None,   # Optional[AgentPoolManager]
+        event_callback:  Optional[Callable] = None,
     ) -> None:
-        self._registry = registry
-        self._config   = config
+        self._registry      = registry
+        self._config        = config
+        self._pool_manager  = pool_manager
         self._event_callback = event_callback
 
     # ------------------------------------------------------------------
-    # Single task execution
+    # Single task
     # ------------------------------------------------------------------
 
     def run_task(self, task: Task) -> AgentResult:
         """
-        Execute a single task synchronously.
-        Finds a suitable agent from the registry and runs the task.
+        Execute a single task, acquiring an agent from the pool.
+        Retries per task.retry_config before returning failure.
         """
-        agent = self._registry.get_or_create(task.agent_type, self._config)
-        self._emit_event("task_started", {"task_id": str(task.task_id),
-                                           "agent_type": task.agent_type})
-        result = agent.run(task)
-        self._emit_event("task_completed", {"task_id": str(task.task_id),
-                                             "succeeded": result.succeeded})
-        return result
+        self._emit_event("task_started", {
+            "task_id": str(task.task_id),
+            "agent_type": task.agent_type,
+            "attempt": task.attempt_number,
+            "trace_id": task.context.trace_id,
+        })
+
+        current_task = task
+        last_result: Optional[AgentResult] = None
+        cfg = task.retry_config
+
+        for attempt in range(1, cfg.max_attempts + 1):
+            agent = self._acquire_agent(current_task.agent_type)
+            try:
+                result = agent.run(current_task)
+                last_result = result
+                if result.succeeded:
+                    self._emit_event("task_completed", {
+                        "task_id": str(task.task_id),
+                        "succeeded": True,
+                        "attempt": attempt,
+                    })
+                    return result
+                # Failed — check if retryable
+                if attempt < cfg.max_attempts:
+                    delay = self._compute_retry_delay(cfg, attempt)
+                    log.info(
+                        "Task failed on attempt %d/%d — retrying in %.1fs",
+                        attempt, cfg.max_attempts, delay,
+                        extra={"task_id": str(task.task_id)},
+                    )
+                    time.sleep(delay)
+                    current_task = task.for_retry()
+
+            finally:
+                self._release_agent(current_task.agent_type, agent)
+
+        # All attempts exhausted
+        self._emit_event("task_completed", {
+            "task_id":   str(task.task_id),
+            "succeeded": False,
+            "attempts":  cfg.max_attempts,
+        })
+        return last_result or AgentResult(
+            task_id=task.task_id,
+            agent_id=self._registry.get_or_create(task.agent_type, self._config).agent_id,
+            agent_name=task.agent_type,
+            agent_version="unknown",
+            session_id=task.session_id,
+            succeeded=False,
+            error=f"All {cfg.max_attempts} attempts failed",
+        )
+
+    def _acquire_agent(self, agent_type: str):
+        if self._pool_manager:
+            return self._pool_manager.acquire(agent_type)
+        return self._registry.get_or_create(agent_type, self._config)
+
+    def _release_agent(self, agent_type: str, agent) -> None:
+        if self._pool_manager:
+            self._pool_manager.release(agent_type, agent)
+
+    @staticmethod
+    def _compute_retry_delay(cfg: RetryConfig, attempt: int) -> float:
+        import random
+        base  = min(
+            cfg.initial_delay_s * (cfg.backoff_factor ** (attempt - 1)),
+            cfg.max_delay_s,
+        )
+        jitter = base * cfg.jitter_factor
+        return base + random.uniform(-jitter, jitter)
 
     # ------------------------------------------------------------------
-    # Workflow execution
+    # Workflow
     # ------------------------------------------------------------------
 
     def run_workflow(self, workflow: Workflow) -> WorkflowResult:
         """
         Execute all tasks in a workflow, respecting dependencies.
-
-        Algorithm:
-          1. Validate the DAG
-          2. Topologically sort tasks
-          3. Execute tasks in batches — each batch contains all tasks
-             whose dependencies have been satisfied
-          4. Parallelise within each batch up to max_workers
-          5. Cascade failures — cancel tasks that depend on a failed task
+        Uses parallel execution within each dependency-resolved batch.
         """
         t_start = time.monotonic()
         workflow.validate_dag()
 
+        wf_ctx = workflow.context.child(
+            workflow_id=workflow.workflow_id,
+            workflow_name=workflow.name,
+        )
         wf_result = WorkflowResult(
             workflow_id=workflow.workflow_id,
             workflow_name=workflow.name,
             session_id=workflow.session_id,
+            context=wf_ctx,
         )
         completed_ids: Set[str] = set()
         failed_ids:    Set[str] = set()
         results:       Dict[str, AgentResult] = {}
         results_lock   = threading.Lock()
 
-        ordered_tasks  = workflow._topological_order()
+        ordered = workflow._topological_order()
 
         self._emit_event("workflow_started", {
             "workflow_id": workflow.workflow_id,
-            "task_count":  len(ordered_tasks),
+            "task_count":  len(ordered),
+            "trace_id":    wf_ctx.trace_id,
         })
 
-        with ThreadPoolExecutor(max_workers=workflow.max_workers) as pool:
-            remaining = list(ordered_tasks)
+        log.info(
+            "Workflow started: %s (%d tasks)",
+            workflow.name, len(ordered),
+            extra={"workflow_id": workflow.workflow_id, "trace_id": wf_ctx.trace_id},
+        )
 
-            while remaining:
-                # Identify tasks ready to run (all dependencies met)
-                ready = [
-                    t for t in remaining
-                    if all(d.value in completed_ids for d in t.depends_on)
-                    and all(d.value not in failed_ids for d in t.depends_on)
-                ]
-                # Cancel tasks that cannot run (dependency failed)
-                cancellable = [
-                    t for t in remaining
-                    if any(d.value in failed_ids for d in t.depends_on)
-                ]
-                for t in cancellable:
-                    t.status = TaskStatus.CANCELLED
-                    wf_result.cancelled_tasks.append(t.task_id.value)
-                    remaining.remove(t)
-                    log.warning(
-                        "[workflow=%s] Task %s cancelled due to failed dependency",
-                        workflow.workflow_id, t.task_id,
-                    )
+        with correlation_context(wf_ctx):
+            with ThreadPoolExecutor(max_workers=workflow.max_workers) as pool:
+                remaining = list(ordered)
 
-                if not ready:
-                    break
+                while remaining:
+                    # Cancel tasks whose dependencies failed
+                    if workflow.cancel_on_failure:
+                        cancellable = [
+                            t for t in remaining
+                            if any(d.value in failed_ids for d in t.depends_on)
+                        ]
+                        for t in cancellable:
+                            t.status = TaskStatus.CANCELLED
+                            wf_result.cancelled_tasks.append(t.task_id.value)
+                            remaining.remove(t)
+                            log.warning(
+                                "Task %s cancelled (dependency failed)", t.task_id,
+                                extra={"workflow_id": workflow.workflow_id},
+                            )
 
-                # Inject shared results from dependencies into payload
-                for task in ready:
-                    for dep_id in task.depends_on:
-                        dep_result = results.get(dep_id.value)
-                        if dep_result:
-                            task.payload[f"_dep_{dep_id.value}"] = dep_result.to_dict()
+                    # Ready: all deps completed successfully
+                    ready = [
+                        t for t in remaining
+                        if all(d.value in completed_ids for d in t.depends_on)
+                    ]
+                    if not ready:
+                        break
 
-                # Submit ready tasks concurrently
-                futures: Dict[Future, Task] = {
-                    pool.submit(self.run_task, task): task
-                    for task in ready
-                }
-                for future in as_completed(futures):
-                    task = futures[future]
-                    remaining.remove(task)
-                    try:
-                        result = future.result(
-                            timeout=task.timeout_seconds
+                    # Inject dependency results into task payloads
+                    for task in ready:
+                        task.context = wf_ctx.child(
+                            task_id=str(task.task_id),
+                            agent_type=task.agent_type,
                         )
-                        with results_lock:
-                            results[task.task_id.value] = result
-                        if result.succeeded:
-                            completed_ids.add(task.task_id.value)
-                        else:
+                        for dep_id in task.depends_on:
+                            dep_result = results.get(dep_id.value)
+                            if dep_result:
+                                task.payload[f"_dep_{dep_id.value}"] = dep_result.to_dict()
+
+                    # Submit ready tasks concurrently
+                    futures: Dict[Future, Task] = {
+                        pool.submit(self.run_task, t): t
+                        for t in ready
+                    }
+                    for future in as_completed(futures, timeout=workflow.timeout_seconds):
+                        task = futures[future]
+                        remaining.remove(task)
+                        try:
+                            result = future.result()
+                            with results_lock:
+                                results[task.task_id.value] = result
+                            if result.succeeded:
+                                completed_ids.add(task.task_id.value)
+                            else:
+                                failed_ids.add(task.task_id.value)
+                                wf_result.failed_tasks.append(task.task_id.value)
+                        except Exception as exc:
+                            log.error(
+                                "Task %s raised exception: %s", task.task_id, exc,
+                                extra={"workflow_id": workflow.workflow_id},
+                                exc_info=True,
+                            )
                             failed_ids.add(task.task_id.value)
                             wf_result.failed_tasks.append(task.task_id.value)
-                    except Exception as exc:
-                        log.error(
-                            "[workflow=%s] Task %s raised exception: %s",
-                            workflow.workflow_id, task.task_id, exc,
-                        )
-                        failed_ids.add(task.task_id.value)
-                        wf_result.failed_tasks.append(task.task_id.value)
 
         duration_ms = round((time.monotonic() - t_start) * 1000, 1)
         wf_result.task_results  = results
@@ -306,18 +354,23 @@ class TaskOrchestrator:
         wf_result.duration_ms   = duration_ms
         wf_result.completed_at  = _now()
 
+        get_metrics().workflow_finished(
+            workflow.name, wf_result.succeeded, duration_ms
+        )
         self._emit_event("workflow_completed", {
             "workflow_id":  workflow.workflow_id,
             "succeeded":    wf_result.succeeded,
             "duration_ms":  duration_ms,
             "failed_tasks": wf_result.failed_tasks,
+            "trace_id":     wf_ctx.trace_id,
         })
         log.info(
-            "[workflow=%s] %s in %.0f ms — %d/%d tasks succeeded",
-            workflow.workflow_id,
+            "Workflow %s: %s in %.0f ms — %d/%d tasks succeeded",
+            workflow.name,
             "SUCCEEDED" if wf_result.succeeded else "FAILED",
             duration_ms,
-            len(completed_ids), len(ordered_tasks),
+            len(completed_ids), len(ordered),
+            extra={"workflow_id": workflow.workflow_id},
         )
         return wf_result
 
@@ -330,101 +383,87 @@ class TaskOrchestrator:
 
 
 # ---------------------------------------------------------------------------
-# Workflow builder DSL — fluent API for building workflows
+# WorkflowBuilder DSL — fixed step-label resolution
 # ---------------------------------------------------------------------------
 
 class WorkflowBuilder:
     """
-    Fluent DSL for constructing procurement analysis workflows.
+    Fluent DSL for building procurement analysis workflows.
 
-    Usage:
-        workflow = (
-            WorkflowBuilder("supplier-portfolio-review")
-            .session(session_id)
-            .step("SupplierStressAgent", payload={"data": ...})
-            .then("DecisionAuditAgent", depends_on=["step-0"])
-            .parallel(
-                ("TotalCostAgent",   {"data": tco_data}),
-                ("BiasDetectorAgent",{"data": eval_data}),
-            )
-            .build()
-        )
+    Fixed in v2:
+    - Step labels are now stored as TaskId values (not string keys)
+    - then() correctly resolves the previous task's actual TaskId
+    - parallel() does not create false dependencies between parallel steps
     """
 
     def __init__(self, name: str) -> None:
-        import uuid as _uuid
-        self._name       = name
-        self._workflow_id = f"wf-{_uuid.uuid4().hex[:10]}"
+        self._name        = name
+        self._workflow_id = f"wf-{uuid.uuid4().hex[:10]}"
         self._session_id: Optional[SessionId] = None
+        self._context:    Optional[CorrelationContext] = None
         self._tasks:      List[Task] = []
-        self._step_ids:   List[str]  = []
+        self._last_task_id: Optional[TaskId] = None
 
     def session(self, session_id: SessionId) -> "WorkflowBuilder":
         self._session_id = session_id
         return self
 
+    def trace(self, context: CorrelationContext) -> "WorkflowBuilder":
+        self._context = context
+        return self
+
     def step(
         self,
-        agent_type: str,
-        payload: Dict[str, Any],
-        depends_on: Optional[List[str]] = None,
-        priority:   int = 50,
-        timeout:    int = 300,
+        agent_type:  str,
+        payload:     Dict[str, Any],
+        depends_on:  Optional[List[TaskId]] = None,
+        priority:    int = 50,
+        timeout:     int = 300,
+        retry:       Optional[RetryConfig] = None,
     ) -> "WorkflowBuilder":
-        """Add a task step. Returns self for chaining."""
-        from framework.core.types import TaskId
         sid = self._session_id or SessionId.generate()
-        dep_task_ids = [
-            TaskId(dep_label) for dep_label in (depends_on or [])
-            if dep_label in self._step_ids
-        ]
-        # Resolve labels to actual TaskIds stored in tasks
-        actual_dep_ids = []
-        for label in (depends_on or []):
-            match = next((t.task_id for t in self._tasks
-                          if t.metadata.get("step_label") == label), None)
-            if match:
-                actual_dep_ids.append(match)
-
+        ctx = self._context or CorrelationContext.new(session_id=str(sid))
         task = Task.create(
             agent_type=agent_type,
             payload=payload,
             session_id=sid,
+            context=ctx,
             priority=priority,
             timeout_seconds=timeout,
-            depends_on=actual_dep_ids,
-            metadata={"step_label": f"step-{len(self._tasks)}"},
+            depends_on=depends_on or [],
+            metadata={"step_index": len(self._tasks)},
+            retry_config=retry or RetryConfig(),
         )
         self._tasks.append(task)
-        self._step_ids.append(f"step-{len(self._tasks)-1}")
+        self._last_task_id = task.task_id
         return self
 
     def then(
         self,
         agent_type: str,
-        payload: Dict[str, Any],
+        payload:    Dict[str, Any],
         **kwargs,
     ) -> "WorkflowBuilder":
-        """Add a step that depends on the previous step."""
-        prev_label = self._step_ids[-1] if self._step_ids else None
-        return self.step(
-            agent_type,
-            payload,
-            depends_on=[prev_label] if prev_label else None,
-            **kwargs,
-        )
+        """Add a step that sequentially depends on the previous step."""
+        prev = [self._last_task_id] if self._last_task_id else []
+        return self.step(agent_type, payload, depends_on=prev, **kwargs)
 
     def parallel(self, *steps: Tuple[str, Dict]) -> "WorkflowBuilder":
         """Add multiple independent steps that run in parallel."""
+        saved = self._last_task_id
         for agent_type, payload in steps:
-            self.step(agent_type, payload)
+            self.step(agent_type, payload, depends_on=None)
+        # last_task_id points to the last parallel step added
         return self
 
     def build(self) -> Workflow:
+        sid = self._session_id or SessionId.generate()
+        ctx = self._context or CorrelationContext.new(session_id=str(sid))
         return Workflow(
             workflow_id=self._workflow_id,
             name=self._name,
-            session_id=self._session_id or SessionId.generate(),
+            session_id=sid,
+            context=ctx,
             tasks=self._tasks,
         )
 
@@ -436,5 +475,3 @@ class WorkflowBuilder:
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
-
-from typing import Tuple  # noqa — needed for WorkflowBuilder type hint

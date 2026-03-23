@@ -1,0 +1,130 @@
+# deploy/helm/values.yaml
+# ========================
+# SKEIN Framework — Helm Chart Values
+#
+# Deploy with:
+#   helm install skein ./deploy/helm --values deploy/helm/values.yaml
+#   helm upgrade  skein ./deploy/helm --values deploy/helm/values.yaml
+#
+# Override per environment:
+#   helm install skein ./deploy/helm -f values-prod.yaml
+
+# ── Image ──────────────────────────────────────────────────────────────────────
+image:
+  repository: skein-framework
+  tag:        latest
+  pullPolicy: IfNotPresent
+
+# ── Replica and scaling ────────────────────────────────────────────────────────
+replicaCount: 2
+
+autoscaling:
+  enabled:                        true
+  minReplicas:                    2
+  maxReplicas:                    10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled:      true
+  minAvailable: 1
+
+# ── Resources ──────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu:    "500m"
+    memory: "512Mi"
+  limits:
+    cpu:    "2000m"
+    memory: "2Gi"
+
+# ── Service ────────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+
+# ── Health probes ──────────────────────────────────────────────────────────────
+livenessProbe:
+  path:                /health
+  port:                8080
+  initialDelaySeconds: 15
+  periodSeconds:       20
+  timeoutSeconds:      5
+  failureThreshold:    3
+
+readinessProbe:
+  path:                /ready
+  port:                8080
+  initialDelaySeconds: 5
+  periodSeconds:       10
+  timeoutSeconds:      5
+  failureThreshold:    3
+
+startupProbe:
+  path:                /health
+  port:                8080
+  initialDelaySeconds: 5
+  periodSeconds:       5
+  failureThreshold:    12
+
+# ── LLM Configuration ──────────────────────────────────────────────────────────
+llm:
+  provider:  anthropic               # ollama | anthropic | openai | azure
+  model:     claude-sonnet-4-6
+  secretName: skein-secrets          # K8s secret containing llm-api-key
+  secretKey:  llm-api-key
+
+# ── SKEIN Application config ────────────────────────────────────────────────────
+skein:
+  maxWorkers:      8
+  logLevel:        INFO
+  logJson:         "true"
+  healthPort:      8080
+  dryRun:          "false"
+  governanceLogDir: /app/logs/governance
+
+# ── Persistence (governance logs) ─────────────────────────────────────────────
+persistence:
+  enabled:      false               # set true for persistent governance logs
+  storageClass: ""
+  size:         5Gi
+  mountPath:    /app/logs
+
+# ── Pod affinity — spread across nodes ────────────────────────────────────────
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: skein
+          topologyKey: kubernetes.io/hostname
+
+# ── Security ───────────────────────────────────────────────────────────────────
+securityContext:
+  runAsNonRoot:             true
+  runAsUser:                1000
+  runAsGroup:               1000
+  fsGroup:                  1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem:   true
+  capabilities:
+    drop: [ALL]
+
+# ── Namespace ──────────────────────────────────────────────────────────────────
+namespace: skein
+
+# ── Prometheus scraping ────────────────────────────────────────────────────────
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port:   "8080"
+  prometheus.io/path:   "/metrics"
+
+# ── Environment overrides ─────────────────────────────────────────────────────
+# Add any extra env vars here
+extraEnv: []
+# - name: CUSTOM_VAR
+#   value: "custom_value"

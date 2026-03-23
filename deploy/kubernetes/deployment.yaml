@@ -1,0 +1,318 @@
+# deploy/kubernetes/deployment.yaml
+# =====================================
+# SKEIN Framework - Kubernetes Deployment
+#
+# Deploys the SKEIN agent service as a scalable, observable,
+# production-grade Kubernetes workload.
+#
+# Resources:
+#   Deployment      - main workload with health probes
+#   HorizontalPodAutoscaler - scale 2-10 replicas on CPU/memory
+#   PodDisruptionBudget     - minimum 1 replica always available
+#   Service         - ClusterIP for internal routing
+#   ConfigMap       - SKEIN config (non-secret values)
+#   ServiceAccount  - minimal RBAC
+#
+# Usage:
+#   kubectl apply -k deploy/kubernetes/
+#   kubectl rollout status deployment/skein-agents
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skein
+  labels:
+    app: skein
+    version: v1
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: skein-service-account
+  namespace: skein
+  labels:
+    app: skein
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skein-config
+  namespace: skein
+  labels:
+    app: skein
+data:
+  config.yaml: |
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      temperature: 0.1
+      max_tokens: 2048
+      timeout_seconds: 120
+      max_retries: 3
+      retry_backoff_seconds: 2.0
+
+    reasoning:
+      strategy: structured
+      enable_langchain: false
+      enable_langgraph: false
+
+    orchestration:
+      max_workers: 8
+      default_task_timeout_seconds: 300
+      default_workflow_timeout_seconds: 600
+
+    memory:
+      working_memory_max_entries: 50000
+
+    governance:
+      log_dir: /app/logs/governance
+
+    security:
+      enable_input_sanitisation: true
+      enable_pii_redaction: true
+      max_input_length: 50000
+      rate_limit_requests_per_minute: 120
+
+    agent:
+      dry_run: false
+      verbose_logging: false
+      trace_dir: /app/logs/traces
+
+  logging.json: |
+    {
+      "level": "INFO",
+      "json_output": true,
+      "format": "structured"
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skein-agents
+  namespace: skein
+  labels:
+    app: skein
+    component: agents
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: skein
+      component: agents
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0    # Always keep current replicas up during rollout
+      maxSurge: 1          # Allow one extra replica during update
+  template:
+    metadata:
+      labels:
+        app: skein
+        component: agents
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: skein-service-account
+
+      # Security context — run as non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      # Graceful shutdown — allow in-flight tasks to complete
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: skein-agent
+          image: skein-framework:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+
+          env:
+            # LLM provider credentials from Kubernetes secrets
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: skein-secrets
+                  key: llm-api-key
+
+            # Override config via environment
+            - name: LLM_PROVIDER
+              value: "anthropic"
+            - name: LLM_MODEL
+              value: "claude-sonnet-4-6"
+            - name: SKEIN_MAX_WORKERS
+              value: "8"
+            - name: SKEIN_GOVERNANCE_LOG_DIR
+              value: "/app/logs/governance"
+            - name: SKEIN_LOG_LEVEL
+              value: "INFO"
+            - name: SKEIN_LOG_JSON
+              value: "true"
+            - name: SKEIN_HEALTH_PORT
+              value: "8080"
+
+          # Mount ConfigMap
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: logs
+              mountPath: /app/logs
+
+          # Resource requests and limits
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+          # Liveness probe — is the process alive?
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe — can the pod serve requests?
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Startup probe — allow extra time for agent registration
+          startupProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12   # 60s total startup window
+
+          # Container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: config
+          configMap:
+            name: skein-config
+        - name: logs
+          emptyDir:
+            sizeLimit: 2Gi
+
+      # Pod affinity — spread across nodes for resilience
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [skein]
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skein-agents
+  namespace: skein
+  labels:
+    app: skein
+    component: agents
+spec:
+  selector:
+    app: skein
+    component: agents
+  ports:
+    - name: health
+      port: 8080
+      targetPort: health
+      protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: skein-agents-hpa
+  namespace: skein
+  labels:
+    app: skein
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: skein-agents
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5min before scale-down
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: skein-agents-pdb
+  namespace: skein
+  labels:
+    app: skein
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: skein
+      component: agents

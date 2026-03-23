@@ -266,9 +266,17 @@ class GovernanceLogger:
                         default=str, sort_keys=True, ensure_ascii=False,
                     )
                     expected_hash = hashlib.sha256(raw.encode()).hexdigest()[:24]
+                    # Check 1: chain link (prev_hash matches previous line's hash)
                     if stored_prev != prev_hash:
                         log.error(
                             "Chain broken at line %d: prev_hash mismatch", line_num
+                        )
+                        return False
+                    # Check 2: content integrity (hash matches content)
+                    if stored_hash and expected_hash != stored_hash:
+                        log.error(
+                            "Chain broken at line %d: content hash mismatch "                            "(stored=%s expected=%s)",
+                            line_num, stored_hash, expected_hash,
                         )
                         return False
                     prev_hash = stored_hash

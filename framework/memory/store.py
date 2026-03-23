@@ -1,32 +1,23 @@
 """
 framework/memory/store.py
 ==========================
-Memory layer for the SKEIN framework.
+Memory layer with session isolation, LRU eviction, and metrics integration.
 
-WHY MEMORY MATTERS FOR PROCUREMENT AI:
-  The original POC had zero memory — every agent run started cold.
-  Real procurement intelligence requires:
-    - Supplier history across multiple analysis runs
-    - Learned negotiation patterns per counterparty
-    - Cross-agent knowledge sharing within a session
-    - Persistent institutional knowledge (Mystery 01)
+CHANGES FROM v1
+===============
+- WorkingMemory: LRU eviction (OrderedDict) replaces oldest-10% blunt eviction
+- Session isolation: concurrent agents in different sessions cannot read
+  each other's data even if keys collide
+- Memory metrics: entry counts reported to Prometheus via get_metrics()
+- InstitutionalMemory: atomic read-modify-write for concurrent agents
+- ContextMemory: namespace collision protection
+- All stores implement MemoryStore protocol identically (Liskov)
 
-MEMORY TIERS:
-  1. WorkingMemory   — in-process, session-scoped, TTL-based
-                       (fast, volatile, good for within-session sharing)
-  2. ContextMemory   — cross-session within a task chain
-                       (medium-lived, scoped to orchestration workflow)
-  3. InstitutionalMemory — persistent, knowledge base
-                       (long-lived, shared across all sessions)
-
-All three implement the MemoryStore protocol.
-Agents receive a MemoryStore via dependency injection.
-They never create or own memory directly.
-
-THREAD-SAFETY:
-  WorkingMemory: threading.RLock per store instance
-  All put/get operations are atomic
-  Session namespace prevents cross-session data leakage
+THREAD SAFETY
+=============
+WorkingMemory: single RLock covering all operations including eviction.
+InstitutionalMemory: separate write lock with atomic read-modify-write.
+No deadlock possible: neither store acquires the other's lock.
 """
 
 from __future__ import annotations
@@ -35,27 +26,34 @@ import abc
 import logging
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from framework.core.types import AgentId, SessionId
+from framework.observability.metrics import get_metrics
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 
 log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# MemoryEntry — stored with TTL and provenance
+# MemoryEntry
 # ---------------------------------------------------------------------------
 
 @dataclass
 class MemoryEntry:
-    """One item in the memory store."""
-    key:        str
-    value:      Any
-    session_id: str
-    stored_by:  str              # agent_id.value
-    stored_at:  float = field(default_factory=time.monotonic)
-    ttl_seconds: Optional[float] = None   # None = no expiry
+    key:         str
+    value:       Any
+    session_id:  str
+    stored_by:   str
+    stored_at:   float = field(default_factory=time.monotonic)
+    ttl_seconds: Optional[float] = None
 
     @property
     def is_expired(self) -> bool:
@@ -69,136 +67,124 @@ class MemoryEntry:
 # ---------------------------------------------------------------------------
 
 class MemoryStore(abc.ABC):
-    """
-    Abstract memory store interface.
-    All implementations must satisfy this contract.
-    """
 
     @abc.abstractmethod
     def set(
-        self,
-        key: str,
-        value: Any,
-        session_id: Optional[SessionId] = None,
-        agent_id: Optional[AgentId] = None,
-        ttl_seconds: Optional[float] = None,
-    ) -> None:
-        """Store a value under the given key."""
+        self, key: str, value: Any,
+        session_id:  Optional[SessionId] = None,
+        agent_id:    Optional[AgentId]   = None,
+        ttl_seconds: Optional[float]     = None,
+    ) -> None: ...
 
     @abc.abstractmethod
-    def get(
-        self,
-        key: str,
-        session_id: Optional[SessionId] = None,
-    ) -> Optional[Any]:
-        """Retrieve a value by key. Returns None if not found or expired."""
+    def get(self, key: str, session_id: Optional[SessionId] = None) -> Optional[Any]: ...
 
     @abc.abstractmethod
-    def delete(self, key: str, session_id: Optional[SessionId] = None) -> None:
-        """Remove a key from the store."""
+    def delete(self, key: str, session_id: Optional[SessionId] = None) -> None: ...
 
     @abc.abstractmethod
-    def keys(self, session_id: Optional[SessionId] = None) -> List[str]:
-        """List all non-expired keys for a session (or globally)."""
+    def keys(self, session_id: Optional[SessionId] = None) -> List[str]: ...
 
-    def get_or_default(
-        self, key: str, default: Any, session_id: Optional[SessionId] = None
-    ) -> Any:
-        """Return stored value or default if not found."""
-        value = self.get(key, session_id)
-        return value if value is not None else default
+    def get_or_default(self, key: str, default: Any,
+                       session_id: Optional[SessionId] = None) -> Any:
+        v = self.get(key, session_id)
+        return v if v is not None else default
 
 
 # ---------------------------------------------------------------------------
-# WorkingMemory — in-process, session-isolated, TTL-enabled
+# WorkingMemory — LRU, session-isolated
 # ---------------------------------------------------------------------------
 
 class WorkingMemory(MemoryStore):
     """
-    In-process memory with session isolation and TTL support.
+    In-process memory with session isolation and LRU eviction.
 
-    Storage: nested dict — session_id → {key → MemoryEntry}
-    Thread-safe: RLock for all read/write operations.
+    Storage: nested OrderedDict — session_id → {key → MemoryEntry}
+    OrderedDict preserves insertion order for LRU eviction.
 
-    Use cases:
-      - Observations from one agent shared with a downstream agent
-      - Decision records (Mystery 13) within a session
-      - Cached signal scores to avoid recomputation
+    Session isolation guarantee:
+        Two concurrent agents running in different sessions CANNOT read
+        each other's data, even if they use identical keys.
+        This is enforced by the session_id namespace — not just convention.
 
-    Limits:
-      max_entries: Total entries across all sessions (prevents unbounded growth)
+    Thread-safe: single RLock covering all read and write operations.
     """
 
     def __init__(self, max_entries: int = 10_000) -> None:
         self._lock = threading.RLock()
-        self._store: Dict[str, Dict[str, MemoryEntry]] = {}
+        self._store: Dict[str, OrderedDict] = {}
         self._max_entries = max_entries
 
+    # Namespace helper — every key is stored under (session_id, key) pair
+    @staticmethod
+    def _sid(session_id: Optional[SessionId]) -> str:
+        return str(session_id) if session_id else "_global"
+
     def set(
-        self,
-        key: str,
-        value: Any,
-        session_id: Optional[SessionId] = None,
-        agent_id: Optional[AgentId] = None,
-        ttl_seconds: Optional[float] = None,
+        self, key: str, value: Any,
+        session_id:  Optional[SessionId] = None,
+        agent_id:    Optional[AgentId]   = None,
+        ttl_seconds: Optional[float]     = None,
     ) -> None:
-        sid = str(session_id) if session_id else "_global"
+        sid = self._sid(session_id)
         with self._lock:
             self._evict_expired()
-            self._enforce_limit()
             if sid not in self._store:
-                self._store[sid] = {}
-            self._store[sid][key] = MemoryEntry(
-                key=key,
-                value=value,
-                session_id=sid,
+                self._store[sid] = OrderedDict()
+            session_store = self._store[sid]
+            # LRU: move to end on update
+            if key in session_store:
+                session_store.move_to_end(key)
+            session_store[key] = MemoryEntry(
+                key=key, value=value, session_id=sid,
                 stored_by=str(agent_id) if agent_id else "unknown",
                 ttl_seconds=ttl_seconds,
             )
+            # Enforce global limit via LRU eviction
+            total = sum(len(s) for s in self._store.values())
+            while total > self._max_entries:
+                self._evict_lru_one()
+                total -= 1
+        get_metrics().memory_updated("working", self.total_entries)
 
-    def get(
-        self,
-        key: str,
-        session_id: Optional[SessionId] = None,
-    ) -> Optional[Any]:
-        sid = str(session_id) if session_id else "_global"
+    def get(self, key: str, session_id: Optional[SessionId] = None) -> Optional[Any]:
+        sid = self._sid(session_id)
         with self._lock:
-            session_store = self._store.get(sid, {})
+            session_store = self._store.get(sid)
+            if session_store is None:
+                return None
             entry = session_store.get(key)
             if entry is None:
                 return None
             if entry.is_expired:
                 del session_store[key]
                 return None
+            # LRU: mark as recently used
+            session_store.move_to_end(key)
             return entry.value
 
-    def delete(
-        self, key: str, session_id: Optional[SessionId] = None
-    ) -> None:
-        sid = str(session_id) if session_id else "_global"
+    def delete(self, key: str, session_id: Optional[SessionId] = None) -> None:
+        sid = self._sid(session_id)
         with self._lock:
-            if sid in self._store:
-                self._store[sid].pop(key, None)
+            self._store.get(sid, {}).pop(key, None)
 
-    def keys(
-        self, session_id: Optional[SessionId] = None
-    ) -> List[str]:
-        sid = str(session_id) if session_id else "_global"
+    def keys(self, session_id: Optional[SessionId] = None) -> List[str]:
+        sid = self._sid(session_id)
         with self._lock:
-            session_store = self._store.get(sid, {})
             return [
-                k for k, entry in session_store.items()
-                if not entry.is_expired
+                k for k, e in self._store.get(sid, {}).items()
+                if not e.is_expired
             ]
 
     def clear_session(self, session_id: SessionId) -> None:
         """Remove all entries for a session. Call at session end."""
         with self._lock:
             self._store.pop(str(session_id), None)
+        get_metrics().memory_updated("working", self.total_entries)
 
     def _evict_expired(self) -> None:
-        """Remove expired entries. Called under lock."""
-        for sid in list(self._store.keys()):
+        """Remove all expired entries. Called under lock."""
+        for sid in list(self._store):
             session_store = self._store[sid]
             expired = [k for k, e in session_store.items() if e.is_expired]
             for k in expired:
@@ -206,21 +192,19 @@ class WorkingMemory(MemoryStore):
             if not session_store:
                 del self._store[sid]
 
-    def _enforce_limit(self) -> None:
-        """Evict oldest entries if over limit. Called under lock."""
-        total = sum(len(s) for s in self._store.values())
-        if total <= self._max_entries:
-            return
-        # Collect all entries with timestamps, evict oldest 10%
-        all_entries: List[Tuple[str, str, float]] = [
-            (sid, key, entry.stored_at)
-            for sid, session_store in self._store.items()
-            for key, entry in session_store.items()
-        ]
-        all_entries.sort(key=lambda x: x[2])
-        to_evict = len(all_entries) // 10
-        for sid, key, _ in all_entries[:to_evict]:
-            self._store.get(sid, {}).pop(key, None)
+    def _evict_lru_one(self) -> None:
+        """Evict the globally oldest (LRU) entry. Called under lock."""
+        oldest_sid = oldest_key = oldest_time = None
+        for sid, session_store in self._store.items():
+            if session_store:
+                # First entry in OrderedDict is the least-recently-used
+                k, entry = next(iter(session_store.items()))
+                if oldest_time is None or entry.stored_at < oldest_time:
+                    oldest_sid, oldest_key, oldest_time = sid, k, entry.stored_at
+        if oldest_sid and oldest_key:
+            del self._store[oldest_sid][oldest_key]
+            if not self._store[oldest_sid]:
+                del self._store[oldest_sid]
 
     @property
     def total_entries(self) -> int:
@@ -237,35 +221,35 @@ class WorkingMemory(MemoryStore):
 
 
 # ---------------------------------------------------------------------------
-# ContextMemory — wraps WorkingMemory with task-chain scoping
+# ContextMemory — workflow-scoped namespace over WorkingMemory
 # ---------------------------------------------------------------------------
 
 class ContextMemory(MemoryStore):
     """
-    Memory scoped to an orchestration task chain.
-    Shares the underlying WorkingMemory but namespaces keys
-    by both session_id and a workflow_id — preventing cross-workflow leakage
+    Memory scoped to one workflow, preventing cross-workflow key collisions
     within the same session.
+
+    Uses WorkingMemory as backend with {workflow_id}:{key} namespacing.
     """
 
     def __init__(self, working_memory: WorkingMemory, workflow_id: str) -> None:
-        self._wm = working_memory
+        self._wm          = working_memory
         self._workflow_id = workflow_id
 
-    def _namespace(self, key: str) -> str:
-        return f"workflow:{self._workflow_id}:{key}"
+    def _ns(self, key: str) -> str:
+        return f"wf:{self._workflow_id}:{key}"
 
     def set(self, key, value, session_id=None, agent_id=None, ttl_seconds=None):
-        self._wm.set(self._namespace(key), value, session_id, agent_id, ttl_seconds)
+        self._wm.set(self._ns(key), value, session_id, agent_id, ttl_seconds)
 
     def get(self, key, session_id=None):
-        return self._wm.get(self._namespace(key), session_id)
+        return self._wm.get(self._ns(key), session_id)
 
     def delete(self, key, session_id=None):
-        self._wm.delete(self._namespace(key), session_id)
+        self._wm.delete(self._ns(key), session_id)
 
     def keys(self, session_id=None):
-        prefix = self._namespace("")
+        prefix = self._ns("")
         return [
             k[len(prefix):]
             for k in self._wm.keys(session_id)
@@ -274,28 +258,29 @@ class ContextMemory(MemoryStore):
 
 
 # ---------------------------------------------------------------------------
-# InstitutionalMemory — persistent across sessions (file-backed stub)
+# InstitutionalMemory — persistent, JSON-backed
 # ---------------------------------------------------------------------------
 
 class InstitutionalMemory(MemoryStore):
     """
-    Persistent knowledge store for institutional procurement intelligence.
+    Persistent knowledge store for cross-session institutional intelligence.
 
-    This is a simplified file-backed implementation.
-    Production deployments would replace this with:
-      - Vector database (Chroma, Pinecone, pgvector) for semantic search
+    File-backed implementation with atomic write-lock.
+    Production deployments replace with:
+      - Vector DB (Chroma, pgvector) for semantic search
       - Redis for fast persistent K/V
-      - PostgreSQL for structured knowledge
+      - Databricks Delta Table (see platform/databricks adapter)
 
-    This stub provides the interface contract for those backends.
-    Session_id is ignored — institutional memory is global.
+    Thread-safe: separate read lock and write lock with
+    atomic read-modify-write pattern to prevent lost updates.
     """
 
     def __init__(self, storage_path: Optional[str] = None) -> None:
         import json as _json
         from pathlib import Path
 
-        self._lock = threading.RLock()
+        self._read_lock  = threading.RLock()
+        self._write_lock = threading.Lock()
         self._path = Path(storage_path) if storage_path else None
         self._data: Dict[str, Any] = {}
 
@@ -303,41 +288,63 @@ class InstitutionalMemory(MemoryStore):
             try:
                 with open(self._path) as fh:
                     self._data = _json.load(fh)
-                log.info("InstitutionalMemory loaded %d entries from %s",
-                         len(self._data), self._path)
+                log.info(
+                    "InstitutionalMemory: loaded %d entries from %s",
+                    len(self._data), self._path,
+                )
             except Exception as exc:
-                log.warning("Could not load institutional memory: %s", exc)
+                log.warning("InstitutionalMemory: load failed: %s", exc)
 
     def set(self, key, value, session_id=None, agent_id=None, ttl_seconds=None):
-        with self._lock:
+        with self._write_lock:
             self._data[key] = {
                 "value":     value,
                 "stored_by": str(agent_id) if agent_id else "unknown",
                 "stored_at": time.time(),
             }
             self._persist()
+        get_metrics().memory_updated("institutional", len(self._data))
 
     def get(self, key, session_id=None):
-        with self._lock:
+        with self._read_lock:
             entry = self._data.get(key)
             return entry["value"] if entry else None
 
     def delete(self, key, session_id=None):
-        with self._lock:
+        with self._write_lock:
             self._data.pop(key, None)
             self._persist()
 
     def keys(self, session_id=None):
-        with self._lock:
+        with self._read_lock:
             return list(self._data.keys())
+
+    def update(self, key: str, update_fn, default: Any = None) -> Any:
+        """
+        Atomic read-modify-write.
+        update_fn receives current value (or default), returns new value.
+        Prevents lost updates from concurrent agents.
+        """
+        with self._write_lock:
+            current = self._data.get(key, {}).get("value", default)
+            new_value = update_fn(current)
+            self._data[key] = {
+                "value":     new_value,
+                "stored_by": "atomic_update",
+                "stored_at": time.time(),
+            }
+            self._persist()
+            return new_value
 
     def _persist(self) -> None:
         if self._path is None:
             return
+        import json as _json
         try:
-            import json as _json
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, "w") as fh:
+            tmp = self._path.with_suffix(".tmp")
+            with open(tmp, "w") as fh:
                 _json.dump(self._data, fh, indent=2, default=str)
+            tmp.replace(self._path)  # atomic rename
         except Exception as exc:
-            log.warning("Could not persist institutional memory: %s", exc)
+            log.warning("InstitutionalMemory: persist failed: %s", exc)
