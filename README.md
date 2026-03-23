@@ -39,6 +39,12 @@ Each of the 15 SKEIN agents targets one structural mystery:
 
 ## Architecture
 
+<p align="center">
+  <a href="SKEIN.png">
+    <img src="SKEIN.png" alt="SKEIN Framework" width="800"/>
+  </a>
+</p>
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   SKEIN Framework                        │
