@@ -1,0 +1,14 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "skein.fullname" . }}-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "skein.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "skein.selectorLabels" . | nindent 6 }}
+{{- end }}

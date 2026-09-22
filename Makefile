@@ -2,7 +2,7 @@
 # Makefile — common development tasks
 #
 # Usage:
-#   make test           run all 135 tests (no LLM needed)
+#   make test           run all 312 tests (no LLM needed)
 #   make test-unit      unit tests only (fastest)
 #   make test-load      load/stress tests (slower)
 #   make lint           ruff linting
@@ -23,7 +23,7 @@ TEST_DIRS := tests
 # ── Testing ────────────────────────────────────────────────────────────────────
 
 test:
-	@echo "Running all 135 tests..."
+	@echo "Running all 312 tests..."
 	$(PYTHON) -m unittest discover -s tests -p "test_*.py" -v
 
 test-unit:

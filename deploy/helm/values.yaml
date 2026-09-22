@@ -73,6 +73,33 @@ llm:
   model:     claude-sonnet-4-6
   secretName: skein-secrets          # K8s secret containing llm-api-key
   secretKey:  llm-api-key
+  temperature:           0.1
+  maxTokens:             2048
+  timeoutSeconds:        120
+  maxRetries:            3
+  retryBackoffSeconds:   2.0
+
+# ── Reasoning strategy ─────────────────────────────────────────────────────────
+reasoning:
+  strategy:         structured
+  enableLangchain:  false
+  enableLanggraph:  false
+
+# ── Orchestration ──────────────────────────────────────────────────────────────
+orchestration:
+  defaultTaskTimeoutSeconds:      300
+  defaultWorkflowTimeoutSeconds:  600
+
+# ── Memory ─────────────────────────────────────────────────────────────────────
+memory:
+  workingMemoryMaxEntries: 50000
+
+# ── Security (input sanitisation, PII redaction, rate limiting) ───────────────
+security:
+  enableInputSanitisation:    true
+  enablePiiRedaction:         true
+  maxInputLength:             50000
+  rateLimitRequestsPerMinute: 120
 
 # ── SKEIN Application config ────────────────────────────────────────────────────
 skein:
@@ -81,6 +108,8 @@ skein:
   logJson:         "true"
   healthPort:      8080
   dryRun:          "false"
+  verboseLogging:  "false"
+  traceDir:        /app/logs/traces
   governanceLogDir: /app/logs/governance
 
 # ── Persistence (governance logs) ─────────────────────────────────────────────

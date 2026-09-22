@@ -21,7 +21,7 @@ import logging
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -122,6 +122,7 @@ class WorkflowResult:
     succeeded:       bool = True
     failed_tasks:    List[str] = field(default_factory=list)
     cancelled_tasks: List[str] = field(default_factory=list)
+    timed_out_tasks: List[str] = field(default_factory=list)
     retried_tasks:   List[str] = field(default_factory=list)
     duration_ms:     Optional[float] = None
     completed_at:    Optional[str] = None
@@ -155,11 +156,13 @@ class TaskOrchestrator:
         config:          Any,
         pool_manager=    None,   # Optional[AgentPoolManager]
         event_callback:  Optional[Callable] = None,
+        dead_letter_queue=None,  # Optional[DeadLetterQueue] (R10)
     ) -> None:
         self._registry      = registry
         self._config        = config
         self._pool_manager  = pool_manager
         self._event_callback = event_callback
+        self._dead_letter_queue = dead_letter_queue
 
     # ------------------------------------------------------------------
     # Single task
@@ -213,6 +216,10 @@ class TaskOrchestrator:
             "succeeded": False,
             "attempts":  cfg.max_attempts,
         })
+        if self._dead_letter_queue is not None:
+            self._dead_letter_queue.capture(
+                current_task, last_result.error if last_result else None
+            )
         return last_result or AgentResult(
             task_id=task.task_id,
             agent_id=self._registry.get_or_create(task.agent_type, self._config).agent_id,
@@ -284,7 +291,8 @@ class TaskOrchestrator:
         )
 
         with correlation_context(wf_ctx):
-            with ThreadPoolExecutor(max_workers=workflow.max_workers) as pool:
+            pool = ThreadPoolExecutor(max_workers=workflow.max_workers)
+            try:
                 remaining = list(ordered)
 
                 while remaining:
@@ -327,32 +335,63 @@ class TaskOrchestrator:
                         pool.submit(self.run_task, t): t
                         for t in ready
                     }
-                    for future in as_completed(futures, timeout=workflow.timeout_seconds):
-                        task = futures[future]
-                        remaining.remove(task)
-                        try:
-                            result = future.result()
-                            with results_lock:
-                                results[task.task_id.value] = result
-                            if result.succeeded:
-                                completed_ids.add(task.task_id.value)
-                            else:
+                    try:
+                        for future in as_completed(futures, timeout=workflow.timeout_seconds):
+                            task = futures[future]
+                            remaining.remove(task)
+                            try:
+                                result = future.result()
+                                with results_lock:
+                                    results[task.task_id.value] = result
+                                if result.succeeded:
+                                    completed_ids.add(task.task_id.value)
+                                else:
+                                    failed_ids.add(task.task_id.value)
+                                    wf_result.failed_tasks.append(task.task_id.value)
+                            except Exception as exc:
+                                log.error(
+                                    "Task %s raised exception: %s", task.task_id, exc,
+                                    extra={"workflow_id": workflow.workflow_id},
+                                    exc_info=True,
+                                )
                                 failed_ids.add(task.task_id.value)
                                 wf_result.failed_tasks.append(task.task_id.value)
-                        except Exception as exc:
+                    except FutureTimeoutError:
+                        # workflow.timeout_seconds elapsed before every task in
+                        # this batch completed. The orchestrator cannot force-
+                        # cancel a running thread, so it stops waiting on the
+                        # outstanding futures and reports them as timed out
+                        # instead of letting concurrent.futures.TimeoutError
+                        # propagate out of run_workflow() uncaught.
+                        for future, task in futures.items():
+                            if future.done() or task not in remaining:
+                                continue
+                            task.status = TaskStatus.TIMEOUT
+                            wf_result.timed_out_tasks.append(task.task_id.value)
+                            remaining.remove(task)
                             log.error(
-                                "Task %s raised exception: %s", task.task_id, exc,
+                                "Task %s timed out after %ss — orchestrator stopped "
+                                "waiting (the underlying thread may still be running)",
+                                task.task_id, workflow.timeout_seconds,
                                 extra={"workflow_id": workflow.workflow_id},
-                                exc_info=True,
                             )
-                            failed_ids.add(task.task_id.value)
-                            wf_result.failed_tasks.append(task.task_id.value)
+                        # Workflow-level timeout: don't keep looping on
+                        # remaining ready-but-unsubmitted or dependent tasks.
+                        remaining.clear()
+            finally:
+                # wait=False + cancel_futures=True: a timed-out task's thread
+                # is left running detached rather than blocking run_workflow()
+                # until it finishes — a plain `with ThreadPoolExecutor(...)`
+                # would call shutdown(wait=True) here and silently defeat the
+                # timeout handling above by blocking on the same stragglers.
+                pool.shutdown(wait=False, cancel_futures=True)
 
         duration_ms = round((time.monotonic() - t_start) * 1000, 1)
         wf_result.task_results  = results
-        wf_result.succeeded     = len(wf_result.failed_tasks) == 0
+        wf_result.succeeded     = len(wf_result.failed_tasks) == 0 and len(wf_result.timed_out_tasks) == 0
         wf_result.duration_ms   = duration_ms
         wf_result.completed_at  = _now()
+
 
         get_metrics().workflow_finished(
             workflow.name, wf_result.succeeded, duration_ms

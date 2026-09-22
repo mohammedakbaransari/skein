@@ -94,6 +94,24 @@ class FailingAgent(StructuralAgent):
         return []
 
 
+class SlowAgent(StructuralAgent):
+    """Sleeps longer than the workflow timeout, for timeout-handling tests."""
+    METADATA = AgentMetadata(
+        agent_type="_SlowAgent", display_name="Slow", description="Test",
+        version="0.1.0", capabilities=(), tags=("test",),
+    )
+
+    def observe(self, task: Task) -> Dict[str, Any]:
+        time.sleep(task.payload.get("sleep_s", 2.0))
+        return {"slept": True}
+
+    def reason(self, obs: Dict, task: Task) -> str:
+        return json.dumps({"slept": obs["slept"]})
+
+    def parse_findings(self, obs, reasoning, task) -> List[Finding]:
+        return [self._make_finding("slow", Severity.INFO, "done")]
+
+
 # ---------------------------------------------------------------------------
 # Test: Registry
 # ---------------------------------------------------------------------------
@@ -165,6 +183,7 @@ class TestOrchestrator(unittest.TestCase):
         self.reg.register_class(EchoAgent)
         self.reg.register_class(CounterAgent)
         self.reg.register_class(FailingAgent)
+        self.reg.register_class(SlowAgent)
         self.orch = TaskOrchestrator(self.reg, config=None)
 
     def test_single_task_succeeds(self):
@@ -234,6 +253,25 @@ class TestOrchestrator(unittest.TestCase):
         result = self.orch.run_workflow(wf)
         all_f = result.all_findings
         self.assertEqual(len(all_f), 2)
+
+    def test_workflow_timeout_does_not_raise_and_marks_timed_out_tasks(self):
+        """A batch that outlives workflow.timeout_seconds must not raise
+        concurrent.futures.TimeoutError out of run_workflow() — it must
+        return a WorkflowResult with the outstanding task(s) marked TIMEOUT
+        and succeeded=False."""
+        sid = SessionId.generate()
+        slow_task = Task.create("_SlowAgent", {"sleep_s": 2.0}, session_id=sid)
+        wf = Workflow(
+            workflow_id="wf-timeout-test",
+            name="timeout-test",
+            session_id=sid,
+            tasks=[slow_task],
+            timeout_seconds=0.05,
+        )
+        result = self.orch.run_workflow(wf)  # must not raise
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.timed_out_tasks, [slow_task.task_id.value])
+        self.assertEqual(slow_task.status, TaskStatus.TIMEOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +422,77 @@ class TestGovernanceLogger(unittest.TestCase):
             exec_log = Path(tmpdir) / "executions.jsonl"
             lines = [l for l in exec_log.read_text().splitlines() if l.strip()]
             self.assertEqual(len(lines), 24)  # 8 threads × 3 runs
+            # The chain must still verify after concurrent writes — this is
+            # the actual property the test name promises. Previously this
+            # test only checked line count / absence of exceptions and would
+            # pass even with a broken chain (see HashChainedWriter fix).
+            self.assertTrue(
+                gov.verify_chain(str(exec_log)),
+                "Hash chain must remain valid after concurrent writes",
+            )
+
+    def test_chain_survives_restart(self):
+        """A new GovernanceLogger/HashChainedWriter instance pointed at an
+        existing log directory must resume the chain, not restart it at
+        GENESIS (simulates a process restart reusing the same log files)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reg = AgentRegistry()
+            reg.register_class(EchoAgent)
+
+            gov_a = GovernanceLogger(tmpdir)
+            agent_a = reg.create_instance("_EchoAgent", config=None, governance=gov_a)
+            for i in range(5):
+                agent_a.run(Task.create("_EchoAgent", {"msg": f"before_restart_{i}"}))
+
+            # Simulate a process restart: brand-new GovernanceLogger instance,
+            # same directory, no shared Python state with gov_a.
+            gov_b = GovernanceLogger(tmpdir)
+            reset_registry()
+            reg2 = AgentRegistry()
+            reg2.register_class(EchoAgent)
+            agent_b = reg2.create_instance("_EchoAgent", config=None, governance=gov_b)
+            for i in range(5):
+                agent_b.run(Task.create("_EchoAgent", {"msg": f"after_restart_{i}"}))
+
+            exec_log = Path(tmpdir) / "executions.jsonl"
+            lines = [l for l in exec_log.read_text().splitlines() if l.strip()]
+            self.assertEqual(len(lines), 10)
+            self.assertTrue(
+                gov_b.verify_chain(str(exec_log)),
+                "Hash chain must remain valid across a simulated restart",
+            )
+
+    def test_chain_valid_with_concurrent_multi_instance_writers(self):
+        """Multiple GovernanceLogger instances (e.g. one per pooled worker)
+        constructed and writing concurrently to the same directory must not
+        corrupt the shared chain state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            errors = []
+
+            def worker():
+                try:
+                    gov = GovernanceLogger(tmpdir)
+                    reg = AgentRegistry()
+                    reg.register_class(EchoAgent)
+                    agent = reg.create_instance("_EchoAgent", config=None, governance=gov)
+                    for i in range(5):
+                        agent.run(Task.create("_EchoAgent", {"msg": f"multi_{i}"}))
+                except Exception as exc:
+                    errors.append(str(exc))
+
+            threads = [threading.Thread(target=worker) for _ in range(6)]
+            for t in threads: t.start()
+            for t in threads: t.join()
+
+            self.assertEqual(errors, [], f"Governance errors: {errors}")
+            exec_log = Path(tmpdir) / "executions.jsonl"
+            lines = [l for l in exec_log.read_text().splitlines() if l.strip()]
+            self.assertEqual(len(lines), 30)  # 6 instances × 5 runs
+            verifier = GovernanceLogger(tmpdir)
+            self.assertTrue(
+                verifier.verify_chain(str(exec_log)),
+                "Hash chain must remain valid across concurrent multi-instance writers",
+            )
 
 
 if __name__ == "__main__":

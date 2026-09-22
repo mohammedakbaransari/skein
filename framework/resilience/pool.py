@@ -65,6 +65,19 @@ class PoolConfig:
     idle_timeout_s:    float = 300.0   # evict idle agents after this
 
     @classmethod
+    def from_tenant_policy(cls, policy: Any, default: "PoolConfig" = None) -> "PoolConfig":
+        """Derive per-tenant capacity from TenantPolicy.workflow_limits (R19) —
+        a capability profile, never a hardcoded vendor-tier branch."""
+        base = default or cls()
+        limits = getattr(policy, "workflow_limits", {}) or {}
+        return cls(
+            min_size=int(limits.get("min_size", base.min_size)),
+            max_size=int(limits.get("max_size", base.max_size)),
+            acquire_timeout_s=float(limits.get("acquire_timeout_s", base.acquire_timeout_s)),
+            idle_timeout_s=float(limits.get("idle_timeout_s", base.idle_timeout_s)),
+        )
+
+    @classmethod
     def default(cls) -> "PoolConfig":
         return cls()
 

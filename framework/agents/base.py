@@ -17,6 +17,8 @@ CHANGES FROM v1
 from __future__ import annotations
 
 import abc
+import json
+import re
 import threading
 import time
 import uuid
@@ -30,6 +32,8 @@ from framework.core.types import (
 )
 from framework.observability.logging import get_logger, correlation_context
 from framework.observability.metrics import get_metrics
+from framework.security.controls import get_security_enforcer
+from framework.agents.confidence import ConfidenceScorer
 
 def _now() -> str:
     from datetime import datetime, timezone
@@ -78,12 +82,22 @@ class BaseAgent(abc.ABC):
         memory:              Optional["MemoryStore"] = None,
         reasoning_engine:    Optional["ReasoningEngine"] = None,
         governance_logger:   Optional["GovernanceLogger"] = None,
+        tenant_store_resolver: Optional[Callable[[Optional[str]], Any]] = None,
+        confidence_calibration_store: Optional[Any] = None,
     ) -> None:
         self.agent_id:   AgentId = agent_id or AgentId.generate()
         self.config:     Any     = config
         self.memory:     Optional["MemoryStore"]     = memory
         self.reasoning:  Optional["ReasoningEngine"] = reasoning_engine
         self.governance: Optional["GovernanceLogger"] = governance_logger
+        self.confidence_calibration_store = confidence_calibration_store
+        # Optional hook: resolve(tenant_id) -> (memory, governance) for a
+        # specific tenant, temporarily swapped in for the duration of one
+        # run() call (see run()). SAFE ONLY when the caller guarantees
+        # exclusive access to this instance while run() executes — true
+        # for AgentPool-checked-out instances, NOT true for instances
+        # shared via AgentRegistry.get_or_create() without a pool manager.
+        self.tenant_store_resolver: Optional[Callable[[Optional[str]], Any]] = tenant_store_resolver
 
         self._middleware_stack: List[MiddlewareFn] = []
         self._task_lock:        threading.Lock = threading.Lock()
@@ -199,16 +213,38 @@ class BaseAgent(abc.ABC):
             },
         )
 
+        # Multi-tenant storage routing: if a tenant_store_resolver is
+        # configured, point this agent at the tenant's own memory/
+        # governance stores for the duration of this call only, restoring
+        # the defaults in the finally block below regardless of outcome.
+        # A None result means "no tenant-specific store" (missing/
+        # unregistered tenant, or resolution failed) — leave this agent's
+        # own configured default memory/governance untouched.
+        _orig_memory, _orig_governance = self.memory, self.governance
+        if self.tenant_store_resolver is not None:
+            tenant_key = str(task.tenant_id) if task.tenant_id else None
+            resolved = self.tenant_store_resolver(tenant_key)
+            if resolved is not None:
+                self.memory, self.governance = resolved
+
         try:
             with correlation_context(child_ctx):
+                # Rate-limit per tenant when the task carries a tenant_id
+                # (multi-tenant deployments), otherwise fall back to
+                # per-agent-type limiting (single-tenant / no tenant set —
+                # preserves prior behavior).
+                rate_limit_key = f"tenant:{task.tenant_id}" if task.tenant_id else self.agent_type
+                get_security_enforcer().check_rate_limit(rate_limit_key)
+                get_security_enforcer().check_payload(task.payload)
                 self.on_task_start(task)
                 pipeline = self._build_pipeline()
                 result   = pipeline(task)
 
         except Exception as exc:
+            safe_error = get_security_enforcer().redact(f"{type(exc).__name__}: {exc}")
             self._log.error(
                 "Unhandled exception in agent execution",
-                extra={"task_id": str(task.task_id), "error": str(exc)},
+                extra={"task_id": str(task.task_id), "error": safe_error},
                 exc_info=True,
             )
             result = AgentResult(
@@ -219,7 +255,7 @@ class BaseAgent(abc.ABC):
                 session_id=task.session_id,
                 context=child_ctx,
                 succeeded=False,
-                error=f"{type(exc).__name__}: {exc}",
+                error=safe_error,
                 attempt_number=task.attempt_number,
             )
         finally:
@@ -255,6 +291,9 @@ class BaseAgent(abc.ABC):
             )
             self.on_task_complete(task, result)
             self._log_to_governance(task, result)
+
+            if self.tenant_store_resolver is not None:
+                self.memory, self.governance = _orig_memory, _orig_governance
 
         return result
 
@@ -350,6 +389,7 @@ class StructuralAgent(BaseAgent, abc.ABC):
 
             self._log.debug("PARSE phase", extra={"task_id": str(task.task_id)})
             findings = self.parse_findings(observations, reasoning_text, task)
+            grounding_warnings = self._validate_grounded_findings(findings, observations)
 
             # Cache observations for downstream agents
             self.remember(
@@ -369,6 +409,7 @@ class StructuralAgent(BaseAgent, abc.ABC):
                 reasoning_trace=reasoning_text,
                 observations=observations,
                 succeeded=True,
+                metadata={"grounding_warnings": grounding_warnings} if grounding_warnings else {},
             )
 
         except Exception as exc:
@@ -414,6 +455,52 @@ class StructuralAgent(BaseAgent, abc.ABC):
         top      = findings[0].summary[:120] if findings else ""
         return f"{len(findings)} findings: {critical} critical, {high} high. Top: {top}"
 
+    @staticmethod
+    def _validate_grounded_findings(findings: List[Finding], observations: Dict[str, Any]) -> List[str]:
+        serialized = json.dumps(observations, default=str).lower()
+        warnings = []
+        for finding in findings:
+            references = [
+                ("entity_id", finding.entity_id),
+                ("entity_name", finding.entity_name),
+            ]
+            references.extend(
+                (f"evidence.{key}", value)
+                for key, value in finding.evidence.items()
+                if key.endswith(("_id", "_ref", "_reference", "_score", "_pct", "_amount", "_usd"))
+            )
+            claims = [
+                ("summary", finding.summary),
+                ("detail", finding.detail),
+            ]
+            for label, reference in references:
+                if reference and not StructuralAgent._contains_grounded_value(reference, observations, serialized):
+                    warnings.append(f"ungrounded finding reference: {label}={reference!r}")
+            for label, text in claims:
+                for raw_claim in re.findall(r"(?<![A-Za-z])\$?\d[\d,]*(?:\.\d+)?%?", text or ""):
+                    normalized = raw_claim.lstrip("$").replace(",", "")
+                    if normalized not in serialized and raw_claim not in serialized:
+                        warnings.append(f"ungrounded numeric claim: {label}={raw_claim!r}")
+                for severity_word in re.findall(r"(?i)\b(critical|high|medium|low)\b", text or ""):
+                    if severity_word.lower() != finding.severity.value:
+                        warnings.append(
+                            f"ungrounded severity claim: {label} mentions "
+                            f"{severity_word.lower()!r} but recorded severity is {finding.severity.value!r}"
+                        )
+        return warnings
+
+    @staticmethod
+    def _contains_grounded_value(reference: Any, observations: Any, serialized: str) -> bool:
+        if isinstance(reference, str):
+            return reference.lower() in serialized
+        if isinstance(reference, (int, float)) and not isinstance(reference, bool):
+            if isinstance(observations, dict):
+                return any(StructuralAgent._contains_grounded_value(reference, value, "") for value in observations.values())
+            if isinstance(observations, (list, tuple)):
+                return any(StructuralAgent._contains_grounded_value(reference, value, "") for value in observations)
+            return isinstance(observations, (int, float)) and observations == reference
+        return reference in observations if isinstance(observations, (list, tuple, set)) else False
+
     def _make_finding(
         self,
         finding_type:       str,
@@ -424,8 +511,19 @@ class StructuralAgent(BaseAgent, abc.ABC):
         entity_name:        Optional[str] = None,
         recommended_action: str = "",
         evidence:           Optional[Dict[str, Any]] = None,
-        confidence:         float = 1.0,
+        confidence:         Optional[float] = None,
     ) -> Finding:
+        if confidence is None:
+            confidence = self._derive_confidence(
+                evidence=evidence or {},
+                detail=detail,
+                entity_id=entity_id,
+                entity_name=entity_name,
+            )
+        if confidence is not None and self.confidence_calibration_store is not None:
+            calibrated = self.confidence_calibration_store.get(self.agent_type)
+            if calibrated is not None:
+                confidence = ConfidenceScorer.apply_calibration(confidence, calibrated)
         return Finding(
             finding_type=finding_type,
             severity=severity,
@@ -439,6 +537,14 @@ class StructuralAgent(BaseAgent, abc.ABC):
             confidence_score=max(0.0, min(1.0, confidence)),
             tags=self.METADATA.tags,
         )
+
+    @staticmethod
+    def _derive_confidence(
+        evidence: Dict[str, Any], detail: str,
+        entity_id: Optional[str], entity_name: Optional[str],
+    ) -> float:
+        """Estimate confidence from evidence completeness, not a constant."""
+        return ConfidenceScorer.score(evidence, detail, entity_id, entity_name)
 
     @staticmethod
     def _authority_for_severity(severity: Severity) -> DecisionAuthority:

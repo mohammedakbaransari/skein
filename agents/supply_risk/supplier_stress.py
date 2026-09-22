@@ -311,10 +311,14 @@ class SupplierStressAgent(StructuralAgent):
         Extract and score all six signals from transaction data.
 
         Payload keys:
-            transaction_data (List[Dict]): Monthly supplier transaction records.
+            transaction_data (List[Dict] | Dict): Monthly supplier transaction
+                records, or a single record for the single-transaction
+                convenience mode (normalized to a one-item list below).
             analysis_date (str):          Label for the analysis period.
         """
         records = task.payload.get("transaction_data", [])
+        if isinstance(records, dict):
+            records = [records]
         if not records:
             raise ValueError("Payload must contain 'transaction_data'")
 

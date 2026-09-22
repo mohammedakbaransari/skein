@@ -96,6 +96,9 @@ memory:
 
 governance:
   log_dir: logs/governance              # null to disable
+  findings_path: data/findings.jsonl
+  usage_path: data/usage.jsonl
+  feedback_path: data/feedback.jsonl
   # Four streams written:
   #   logs/governance/executions.jsonl  — every agent.run() call
   #   logs/governance/decisions.jsonl   — DecisionAgent authority records
@@ -120,7 +123,19 @@ security:
   max_input_length:           50000
   max_output_length:          20000
   max_json_depth:             10
+  max_request_body_bytes:     1048576
   rate_limit_requests_per_minute: 60
+
+# ── Secrets Provider ───────────────────────────────────────────────────────────
+# Deployment-selected adapter, never a code change. Env: SKEIN_SECRETS_PROVIDER
+# provider: environment (dev default) | file | vault
+
+secrets:
+  provider:   environment
+  # file_path:   /run/secrets/skein-secrets.json      # provider: file
+  # vault_addr:  https://vault.internal:8200          # provider: vault
+  # vault_token: ${VAULT_TOKEN}
+  # vault_mount: secret
 
 # ── Agent Defaults ─────────────────────────────────────────────────────────────
 # Env: AGENT_DRY_RUN, AGENT_VERBOSE, AGENT_TRACE_DIR
@@ -129,3 +144,4 @@ agent:
   dry_run:         false                # true = DryRunReasoningEngine (no LLM calls)
   verbose_logging: false
   trace_dir:       null                 # null to disable per-run trace files
+  confidence_calibration_path: null    # optional JSON profile store

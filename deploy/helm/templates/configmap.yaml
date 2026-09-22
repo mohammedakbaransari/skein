@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skein-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "skein.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    llm:
+      provider: {{ .Values.llm.provider }}
+      model: {{ .Values.llm.model }}
+      temperature: {{ .Values.llm.temperature }}
+      max_tokens: {{ .Values.llm.maxTokens }}
+      timeout_seconds: {{ .Values.llm.timeoutSeconds }}
+      max_retries: {{ .Values.llm.maxRetries }}
+      retry_backoff_seconds: {{ .Values.llm.retryBackoffSeconds }}
+
+    reasoning:
+      strategy: {{ .Values.reasoning.strategy }}
+      enable_langchain: {{ .Values.reasoning.enableLangchain }}
+      enable_langgraph: {{ .Values.reasoning.enableLanggraph }}
+
+    orchestration:
+      max_workers: {{ .Values.skein.maxWorkers }}
+      default_task_timeout_seconds: {{ .Values.orchestration.defaultTaskTimeoutSeconds }}
+      default_workflow_timeout_seconds: {{ .Values.orchestration.defaultWorkflowTimeoutSeconds }}
+
+    memory:
+      working_memory_max_entries: {{ .Values.memory.workingMemoryMaxEntries }}
+
+    governance:
+      log_dir: {{ .Values.skein.governanceLogDir }}
+
+    security:
+      enable_input_sanitisation: {{ .Values.security.enableInputSanitisation }}
+      enable_pii_redaction: {{ .Values.security.enablePiiRedaction }}
+      max_input_length: {{ .Values.security.maxInputLength }}
+      rate_limit_requests_per_minute: {{ .Values.security.rateLimitRequestsPerMinute }}
+
+    agent:
+      dry_run: {{ .Values.skein.dryRun }}
+      verbose_logging: {{ .Values.skein.verboseLogging }}
+      trace_dir: {{ .Values.skein.traceDir }}
+
+  logging.json: |
+    {
+      "level": {{ .Values.skein.logLevel | quote }},
+      "json_output": {{ .Values.skein.logJson }},
+      "format": "structured"
+    }

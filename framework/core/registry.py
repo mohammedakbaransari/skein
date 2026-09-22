@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
 
@@ -60,6 +60,16 @@ class AgentRegistry:
             raise ValueError(
                 f"{agent_class.__name__} missing METADATA class attribute"
             )
+        if not metadata.input_schema:
+            input_names = {
+                input_name
+                for capability in metadata.capabilities
+                for input_name in capability.input_types
+            }
+            metadata = replace(metadata, input_schema={
+                "type": "object",
+                "properties": {name: {} for name in sorted(input_names)},
+            })
         with self._lock:
             if metadata.agent_type in self._class_catalog:
                 # Idempotent re-registration in test environments
@@ -192,6 +202,13 @@ class AgentRegistry:
     def list_agents(self) -> List[AgentMetadata]:
         with self._lock:
             return list(self._class_catalog.values())
+
+    def get_metadata(self, agent_type: str) -> AgentMetadata:
+        with self._lock:
+            try:
+                return self._class_catalog[agent_type]
+            except KeyError as exc:
+                raise KeyError(f"No metadata registered for type '{agent_type}'") from exc
 
     def live_count(self) -> int:
         with self._lock:

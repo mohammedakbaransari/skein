@@ -2,6 +2,8 @@
 
 Run SKEIN procurement intelligence workflows on Microsoft Fabric with OneLake memory storage and Fabric Lakehouse governance tracking.
 
+> **Validation status (2026-09-16):** this guide is an integration recipe, not evidence of a live Fabric deployment. OneLake credentials, Lakehouse writes, concurrency, governance-table schema, and pipeline execution have not been validated in a real workspace.
+
 ## Prerequisites
 
 - Microsoft Fabric workspace with a Lakehouse
@@ -17,14 +19,18 @@ In your Fabric notebook:
 %pip install azure-identity azure-storage-file-datalake
 ```
 
-Upload the SKEIN package to your Lakehouse Files:
+Build an archive from the current checkout and upload it to your Lakehouse Files:
+```bash
+git archive --format=zip --output=skein.zip HEAD
+```
+
 1. In Fabric, open your Lakehouse
-2. Upload `skein-framework-v2-FINAL.zip` to `Files/skein/`
+2. Upload `skein.zip` to `Files/skein/`
 3. In your notebook:
 
 ```python
 import zipfile, sys
-with zipfile.ZipFile('/lakehouse/default/Files/skein/skein-framework-v2-FINAL.zip') as z:
+with zipfile.ZipFile('/lakehouse/default/Files/skein/skein.zip') as z:
     z.extractall('/tmp/skein')
 sys.path.insert(0, '/tmp/skein/skein')
 ```
@@ -63,6 +69,8 @@ Memory keys are stored as JSON files at:
 `Files/skein/institutional_memory/{key}.json`
 
 ## Governance Logging to Lakehouse Tables
+
+The schema below is illustrative and must be reconciled with the current versioned `AuditEvent` contract before deployment. No compliance/SIEM guarantee is implied.
 
 ```python
 from platform.fabric.adapter import FabricGovernanceLogger
@@ -135,3 +143,5 @@ if workflow_type == "supplier_risk_review":
 | `FABRIC_ONELAKE_PATH` | Full ABFSS path | `abfss://ws@onelake.dfs.fabric.microsoft.com/skein.Lakehouse/Files/skein/` |
 | `LLM_PROVIDER` | LLM provider | `anthropic` |
 | `LLM_API_KEY` | API key | `sk-ant-...` |
+
+Use a configured `SecretsProvider` rather than committed notebook values. Cloud-neutral environment/file/Vault adapters are present; no live Fabric Key Vault or managed-identity adapter is included. Logical tenant isolation is the default product profile; a dedicated Lakehouse/workspace remains a deployment option for regulated tenants.

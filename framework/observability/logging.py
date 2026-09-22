@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from framework.core.types import CorrelationContext
+from framework.security.controls import get_security_enforcer
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ class SKEINJsonFormatter(logging.Formatter):
             ).isoformat(),
             "level":      record.levelname,
             "logger":     record.name,
-            "message":    record.getMessage(),
+            "message":    get_security_enforcer().redact(record.getMessage()),
         }
 
         # Inject correlation context

@@ -48,10 +48,24 @@ from framework.observability.health import (
 from framework.observability.metrics import get_metrics
 from framework.core.registry import get_registry, reset_registry
 from framework.memory.store import WorkingMemory, InstitutionalMemory
+from framework.security.controls import configure_security
+from framework.security.controls import register_secret
+from framework.adapters.secrets import EnvironmentSecretsProvider, build_secrets_provider
+from framework.agents.confidence import JsonCalibrationStore
+from framework.multitenancy.context import get_tenant_registry
+from framework.multitenancy.resolver import TenantStoreResolver
+from framework.auth.api_keys import ApiKeyStore
+from framework.api.server import start_task_api_server, stop_task_api_server
+from framework.api.jobs import JobStore
+from framework.api.webhooks import WebhookDispatcher
 from framework.governance.logger import GovernanceLogger
 from framework.resilience.retry import RetryConfig, get_circuit_registry
 from framework.resilience.pool import AgentPoolManager, PoolConfig
 from framework.orchestration.orchestrator import TaskOrchestrator
+from framework.findings.jsonl_store import JsonlFindingsStore
+from framework.findings.review import ReviewWorkflow
+from framework.billing.jsonl_ledger import JsonlUsageLedger
+from framework.billing.ledger import TokenQuotaEnforcer
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +73,36 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config loader
 # ---------------------------------------------------------------------------
+
+def build_api_key_store(secrets_provider=None) -> ApiKeyStore:
+    """Provision task-API keys from SKEIN_API_KEYS (JSON: {tenant_id: raw_key}).
+
+    Bootstrap-only mechanism, not a secrets-manager integration — same
+    scope boundary as tenant storage provisioning (framework/multitenancy):
+    this loads keys, it doesn't generate/rotate/store them securely at
+    rest. Absent or empty means the task API's auth check is disabled
+    (see framework/api/server.py's opt-in-enforcement pattern).
+    """
+    store = ApiKeyStore()
+    provider = secrets_provider or EnvironmentSecretsProvider()
+    try:
+        raw = provider.get_secret("SKEIN_API_KEYS")
+        register_secret(raw)
+    except KeyError:
+        raw = ""
+    if not raw:
+        return store
+    import json as _json
+    try:
+        mapping = _json.loads(raw)
+        for tenant_id, key in mapping.items():
+            store.register(tenant_id, key)
+            register_secret(key)
+        log.info("[server] Loaded %d API key(s) from SKEIN_API_KEYS", len(store))
+    except Exception as exc:
+        log.error("[server] Failed to parse SKEIN_API_KEYS — task API auth disabled: %s", exc)
+    return store
+
 
 def load_config(path: str = "config/config.yaml") -> dict:
     """Load YAML config and overlay environment variables."""
@@ -96,7 +140,7 @@ def load_config(path: str = "config/config.yaml") -> dict:
 # LLM gateway factory
 # ---------------------------------------------------------------------------
 
-def build_reasoning_engine(config: dict, dry_run: bool = False):
+def build_reasoning_engine(config: dict, dry_run: bool = False, secrets_provider=None):
     """Build the appropriate ReasoningEngine from config."""
     from framework.reasoning.engine import ReasoningEngine
 
@@ -106,6 +150,13 @@ def build_reasoning_engine(config: dict, dry_run: bool = False):
         return DryRunReasoningEngine()
 
     llm_cfg = config["llm"]
+    if not llm_cfg.get("api_key") and secrets_provider is not None:
+        try:
+            llm_cfg["api_key"] = secrets_provider.get_secret("LLM_API_KEY")
+            register_secret(llm_cfg["api_key"])
+        except KeyError:
+            pass
+    register_secret(llm_cfg.get("api_key", ""))
     provider = llm_cfg["provider"]
 
     # Build a simple gateway object that provides .complete()
@@ -184,6 +235,8 @@ def build_reasoning_engine(config: dict, dry_run: bool = False):
         max_tokens=llm_cfg.get("max_tokens", 2048),
         timeout=llm_cfg.get("timeout_seconds", 120),
     )
+    if provider in {"anthropic", "openai", "azure"} and not llm_cfg.get("api_key"):
+        raise RuntimeError(f"LLM_API_KEY is required for provider '{provider}'")
     retry = RetryConfig(
         max_attempts=llm_cfg.get("max_retries", 3),
         initial_delay_s=llm_cfg.get("retry_backoff_seconds", 2.0),
@@ -251,11 +304,25 @@ def run_server(config_path: str = "config/config.yaml", dry_run: bool = False) -
 
     # Framework components
     reset_registry()
+    configure_security(config.get("security", {}))
+    secrets_provider = build_secrets_provider(config.get("secrets", {}))
+    calibration_path = os.environ.get(
+        "SKEIN_CONFIDENCE_CALIBRATION_PATH",
+        config.get("agent", {}).get("confidence_calibration_path"),
+    )
+    confidence_store = JsonCalibrationStore(calibration_path) if calibration_path else None
     registry    = get_registry()
     n_agents    = register_all_agents(registry)
-    reasoning   = build_reasoning_engine(config, dry_run=dry_run)
+    reasoning   = build_reasoning_engine(config, dry_run=dry_run, secrets_provider=secrets_provider)
     gov_dir     = config["governance"]["log_dir"]
     governance  = GovernanceLogger(gov_dir)
+    findings_store = JsonlFindingsStore(config.get("governance", {}).get("findings_path", "data/findings.jsonl"))
+    review_workflow = ReviewWorkflow()
+    job_store = JobStore(max_workers=config["orchestration"].get("max_workers", 4))
+    webhook_dispatcher = WebhookDispatcher()
+    usage_ledger = JsonlUsageLedger(config.get("governance", {}).get("usage_path", "data/usage.jsonl"))
+    quota_enforcer = TokenQuotaEnforcer(usage_ledger)
+    job_store.configure_usage_ledger(usage_ledger)
     working_mem = WorkingMemory(
         max_entries=config.get("memory", {}).get("working_memory_max_entries", 50_000)
     )
@@ -263,13 +330,25 @@ def run_server(config_path: str = "config/config.yaml", dry_run: bool = False) -
     inst_path = config.get("memory", {}).get("institutional_memory_path")
     inst_mem  = InstitutionalMemory(storage_path=inst_path)
 
+    # Per-tenant Delta-backed memory/governance routing (physical
+    # isolation, see architecture assessment §33/§36). Falls back to each
+    # agent's own default below when a task has no tenant_id or an
+    # unregistered one — single-tenant/dev deployments are unaffected.
+    tenant_resolver = TenantStoreResolver(get_tenant_registry())
+
     # Inject dependencies into every agent instance
     orig_create = registry.create_instance
     def factory(agent_type, cfg, **kwargs):
         inst = orig_create(agent_type, cfg, **kwargs)
         inst.reasoning  = reasoning
-        inst.memory     = working_mem
+        # InstitutionalMemoryAgent gets the persistent, cross-restart
+        # store; every other agent gets the in-process WorkingMemory.
+        # Previously `inst_mem` was constructed but never actually
+        # injected into any agent (architecture assessment §32).
+        inst.memory     = inst_mem if agent_type == "InstitutionalMemoryAgent" else working_mem
         inst.governance = governance
+        inst.confidence_calibration_store = confidence_store
+        inst.tenant_store_resolver = tenant_resolver.resolve
         return inst
     registry.create_instance = factory
 
@@ -279,6 +358,29 @@ def run_server(config_path: str = "config/config.yaml", dry_run: bool = False) -
 
     # Orchestrator
     orch = TaskOrchestrator(registry, config=None, pool_manager=pool_mgr)
+
+    # Task-submission API — every request must carry an explicit tenant_id
+    # (see framework/api/server.py); TenantRegistry is empty by default in
+    # this entry point (no provisioning wiring yet — see architecture
+    # assessment §33), so the registry-membership check is skipped until
+    # tenants are actually registered somewhere upstream of this call.
+    task_api_port = int(os.environ.get("SKEIN_TASK_API_PORT", 8081))
+    api_key_store = build_api_key_store(secrets_provider)
+    if len(api_key_store) == 0:
+        log.warning("[server] No SKEIN_API_KEYS configured — task API authentication is DISABLED")
+    bound_task_api_port = start_task_api_server(
+        orch, get_tenant_registry(), port=task_api_port, api_key_store=api_key_store,
+        agent_registry=registry,
+        max_request_body_bytes=config.get("security", {}).get("max_request_body_bytes", 1_048_576),
+        findings_store=findings_store,
+        review_workflow=review_workflow,
+        job_store=job_store,
+        webhook_dispatcher=webhook_dispatcher,
+        usage_ledger=usage_ledger,
+        quota_enforcer=quota_enforcer,
+    )
+    if bound_task_api_port:
+        log.info("[server] Task-submission API on port %d", bound_task_api_port)
 
     # Register readiness check
     def check_agents():
@@ -301,6 +403,7 @@ def run_server(config_path: str = "config/config.yaml", dry_run: bool = False) -
         mark_not_ready()
         time.sleep(5)  # Allow in-flight requests to drain
         pool_mgr.shutdown_all()
+        stop_task_api_server()
         stop_health_server()
         log.info("[server] Shutdown complete")
         sys.exit(0)

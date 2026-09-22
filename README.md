@@ -5,9 +5,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-135%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-417%20passing-brightgreen.svg)]()
 
 SKEIN is a multi-agent framework for structural procurement intelligence. It addresses the 15 structural gaps in current-generation AI procurement tools identified in the companion research paper: *"The 15 Structural Mysteries of Procurement AI"* (Ansari, 2026).
+
+**Documentation:** [Architecture](docs/ARCHITECTURE.md) · [Usage Guide](docs/USAGE.md) · [Deployment](docs/DEPLOYMENT.md) · [Security](docs/SECURITY.md) · [Enterprise Roadmap](docs/ENTERPRISE-EMBEDDING-ROADMAP.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -130,25 +132,57 @@ curl http://localhost:8080/ready
 curl http://localhost:8080/metrics
 ```
 
+### 6. Submit a task over HTTP (task-submission API)
+
+The server also starts a task-submission API (default port 8081). Every request must carry an explicit `tenant_id` — see [docs/USAGE.md](docs/USAGE.md#task-submission-api) for the full request/response reference and how to enable API-key authentication.
+
+```bash
+curl -X POST http://localhost:8081/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"agent_type": "SupplierStressAgent", "tenant_id": "acme", "payload": {"transaction_data": [...]}}'
+```
+
+---
+
+## What's New
+
+Beyond the 15 agents, SKEIN now includes:
+
+- **Task, workflow, findings, and review APIs** (`framework/api/`) — synchronous/asynchronous task and DAG submission, job polling, findings queries, review transitions, OpenAPI contract, and optional finding webhooks.
+- **Tiered multi-tenancy** (`framework/multitenancy/`) — logical isolation helpers and tenant-scoped memory/log/path conventions by default, with dedicated Delta catalogs available as a physical-isolation profile.
+- **Identity and authorization** (`framework/auth/`, `framework/adapters/identity/`, `framework/security/authorization.py`) — API-key tenant auth, normalized principals, OIDC claim mapping, RS256/JWKS verification, and role checks on protected review actions.
+- **Provider-neutral adapters** (`framework/adapters/`) — workflow, secrets, identity, audit, and storage contracts with in-memory/local reference implementations and configurable environment/file/Vault secrets adapters.
+- **Trust controls** — payload and LLM-output schema validation, groundedness warnings, calibrated confidence profiles, reviewer approval, prompt-injection mitigation, secret/PII redaction, rate limits, and token quotas.
+- **Findings, feedback, and billing foundations** — queryable findings, review lifecycle, feedback/evaluation harness, usage ledger, CSV export/reconciliation, and durable local JSONL adapters.
+- **Hash-chained, restart- and concurrency-safe governance logging** (`framework/governance/`) — tamper-evident audit trail for every agent execution.
+- **A working Helm chart and CI gates** — Python 3.11–3.13 tests, Helm lint/render, chaos tests, load smoke tests, Bandit SAST, and `pip-audit` dependency scanning.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full history and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how these fit together.
+
 ---
 
 ## Running Tests
 
 ```bash
-# All 135 tests (no LLM required — all use DryRunReasoningEngine)
+# All 417 tests (no live LLM, IdP, SIEM, Vault, or Databricks required)
 python3 -m unittest discover -s tests -p "test_*.py" -v
 
 # Individual suites
 python3 -m unittest tests.unit.test_retry_circuit -v      # Retry + circuit breaker
 python3 -m unittest tests.unit.test_memory -v             # Memory + session isolation
 python3 -m unittest tests.unit.test_supplier_stress -v    # Supplier stress agent
-python3 -m unittest tests.unit.test_agents_unit -v        # All 8 major agents
+python3 -m unittest tests.unit.test_agents_unit -v        # All 15 agents (smoke)
+python3 -m unittest tests.unit.test_task_api_server -v    # Task-submission API
+python3 -m unittest tests.unit.test_tenant_context -v     # Multi-tenancy
 python3 -m unittest tests.integration.test_framework_integration -v
 python3 -m unittest tests.system.test_multi_agent_system -v
 python3 -m unittest tests.scenarios.test_procurement_scenarios -v
 
 # Load/stress tests (slower — run separately)
 python3 -m unittest tests.load.test_stress_load -v
+
+# Failure-injection tests
+python3 -m unittest tests.chaos.test_failure_injection -v
 ```
 
 ---
@@ -159,6 +193,13 @@ python3 -m unittest tests.load.test_stress_load -v
 ```bash
 kubectl apply -f deploy/kubernetes/deployment.yaml
 kubectl rollout status deployment/skein-agents -n skein
+```
+
+### Helm
+```bash
+helm lint ./deploy/helm
+helm install skein ./deploy/helm --create-namespace
+helm upgrade skein ./deploy/helm
 ```
 
 ### Docker
@@ -211,9 +252,16 @@ skein/
 │   ├── orchestration/          TaskOrchestrator, WorkflowBuilder (DAG)
 │   ├── reasoning/              ReasoningEngine + strategy plugins
 │   ├── memory/                 WorkingMemory (LRU), InstitutionalMemory
-│   ├── governance/             Hash-chained audit logger
-│   ├── resilience/             RetryExecutor, CircuitBreaker, AgentPool
-│   └── observability/          Structured logging, Prometheus, health endpoints
+│   ├── governance/              Hash-chained audit logger + hashchain.py
+│   ├── resilience/              RetryExecutor, CircuitBreaker, AgentPool
+│   ├── observability/           Structured logging, Prometheus, health endpoints
+│   ├── security/                 Input validation, PII redaction, rate limiting, prompt-injection mitigation
+│   ├── multitenancy/            Tenant routing, policy, logical isolation, scoped memory/logging
+│   ├── auth/                    API-key authentication/authorization
+│   ├── adapters/                Workflow, secrets, identity, audit, storage adapters
+│   ├── findings/                Findings store, review lifecycle, feedback
+│   ├── billing/                 Token quotas, usage ledger, export/reconciliation
+│   └── api/                     Task/workflow/findings/review API, jobs, webhooks, OpenAPI
 │
 ├── agents/                     15 domain agents (one per structural mystery)
 │   ├── supply_risk/            M02 — Supplier Stress Signal
@@ -229,7 +277,8 @@ skein/
 │   ├── integration/            Cross-layer integration tests
 │   ├── system/                 Multi-agent, concurrency, pool tests
 │   ├── scenarios/              End-to-end procurement use-case tests
-│   └── load/                   Stress, throughput, deadlock detection
+│   ├── load/                   Stress, throughput, deadlock detection
+│   └── chaos/                  Failure injection and degradation checks
 │
 ├── platform/
 │   ├── databricks/             Delta Lake memory, MLflow governance
@@ -238,7 +287,7 @@ skein/
 ├── deploy/
 │   ├── kubernetes/             Deployment, HPA, PDB, Service, ConfigMap
 │   ├── docker/                 Multi-stage Dockerfile, docker-compose
-│   └── helm/                   Helm chart values
+│   └── helm/                   Helm chart (Chart.yaml, values.yaml, templates/)
 │
 ├── config/config.yaml          Configuration (env-var override supported)
 ├── scripts/server.py           Production server entry point

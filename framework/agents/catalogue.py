@@ -33,6 +33,8 @@ AGENT HIERARCHY:
     - ProcurementBiasDetectorAgent Mystery 15
 """
 
+from dataclasses import replace
+
 from framework.core.types import (
     AgentCapability, AgentMetadata, DecisionAuthority,
 )
@@ -464,6 +466,62 @@ BIAS_DETECTOR_METADATA = AgentMetadata(
     author=AUTHOR,
     mystery_refs=("mystery_15",),
 )
+
+
+def _domain_schema(required=(), properties=None):
+    properties = properties or {}
+    return {
+        "type": "object",
+        "required": list(required),
+        "properties": {name: {"type": kind} for name, kind in properties.items()},
+    }
+
+
+_DOMAIN_SCHEMAS = {
+    "InstitutionalMemoryAgent": _domain_schema(("decision_records",), {"decision_records": "array"}),
+    "SupplierStressAgent": {
+        "type": "object",
+        "required": ["transaction_data"],
+        "properties": {
+            "transaction_data": {
+                "oneOf": [
+                    {"type": "array", "items": {"type": "object", "properties": {"supplier_id": {"type": "string"}}}},
+                    {"type": "object", "properties": {"supplier_id": {"type": "string"}}},
+                ]
+            },
+            "analysis_date": {"type": "string"},
+        },
+    },
+    "NegotiationIntelligenceAgent": _domain_schema((), {"supplier_id": "string", "negotiation_history": "array", "supplier_financials": "object", "negotiation_context": "object"}),
+    "SpecificationInflationAgent": _domain_schema((), {"specification": "object", "category": "string", "supplier_database": "array"}),
+    "WorkingCapitalOptimiserAgent": _domain_schema((), {"suppliers_with_terms": "array", "treasury_position": "object", "scf_facilities": "array"}),
+    "ShouldCostAgent": _domain_schema(("commodity_prices",), {"commodity_prices": "array"}),
+    "DemandIntelligenceAgent": _domain_schema((), {"macro_indicators": "array", "category_mappings": "object"}),
+    "SupplierInnovationAgent": _domain_schema((), {"supplier_innovation_signals": "array", "buyer_strategic_agenda": "object"}),
+    "ComplianceVerificationAgent": _domain_schema(("compliance_records",), {"compliance_records": "array"}),
+    "DecisionCopilotAgent": _domain_schema((), {"pending_alerts": "array", "user_context": "object"}),
+    "ValueRealisationAgent": _domain_schema(("savings_tracking",), {"savings_tracking": "array"}),
+    "TradeScenarioAgent": _domain_schema((), {"sourcing_network": "array", "trade_scenarios": "array"}),
+    "DecisionAuditAgent": _domain_schema(("decision_logs",), {"decision_logs": "array"}),
+    "TotalCostIntelligenceAgent": _domain_schema(("tco_data",), {"tco_data": "array"}),
+    "ProcurementBiasDetectorAgent": _domain_schema(("sourcing_evaluations",), {"sourcing_evaluations": "array"}),
+}
+
+INSTITUTIONAL_MEMORY_METADATA = replace(INSTITUTIONAL_MEMORY_METADATA, input_schema=_DOMAIN_SCHEMAS["InstitutionalMemoryAgent"])
+SUPPLIER_STRESS_METADATA = replace(SUPPLIER_STRESS_METADATA, input_schema=_DOMAIN_SCHEMAS["SupplierStressAgent"])
+NEGOTIATION_INTELLIGENCE_METADATA = replace(NEGOTIATION_INTELLIGENCE_METADATA, input_schema=_DOMAIN_SCHEMAS["NegotiationIntelligenceAgent"])
+SPECIFICATION_INFLATION_METADATA = replace(SPECIFICATION_INFLATION_METADATA, input_schema=_DOMAIN_SCHEMAS["SpecificationInflationAgent"])
+WORKING_CAPITAL_METADATA = replace(WORKING_CAPITAL_METADATA, input_schema=_DOMAIN_SCHEMAS["WorkingCapitalOptimiserAgent"])
+SHOULD_COST_METADATA = replace(SHOULD_COST_METADATA, input_schema=_DOMAIN_SCHEMAS["ShouldCostAgent"])
+DEMAND_INTELLIGENCE_METADATA = replace(DEMAND_INTELLIGENCE_METADATA, input_schema=_DOMAIN_SCHEMAS["DemandIntelligenceAgent"])
+SUPPLIER_INNOVATION_METADATA = replace(SUPPLIER_INNOVATION_METADATA, input_schema=_DOMAIN_SCHEMAS["SupplierInnovationAgent"])
+COMPLIANCE_VERIFICATION_METADATA = replace(COMPLIANCE_VERIFICATION_METADATA, input_schema=_DOMAIN_SCHEMAS["ComplianceVerificationAgent"])
+DECISION_COPILOT_METADATA = replace(DECISION_COPILOT_METADATA, input_schema=_DOMAIN_SCHEMAS["DecisionCopilotAgent"])
+VALUE_REALISATION_METADATA = replace(VALUE_REALISATION_METADATA, input_schema=_DOMAIN_SCHEMAS["ValueRealisationAgent"])
+TRADE_SCENARIO_METADATA = replace(TRADE_SCENARIO_METADATA, input_schema=_DOMAIN_SCHEMAS["TradeScenarioAgent"])
+DECISION_AUDIT_METADATA = replace(DECISION_AUDIT_METADATA, input_schema=_DOMAIN_SCHEMAS["DecisionAuditAgent"])
+TOTAL_COST_METADATA = replace(TOTAL_COST_METADATA, input_schema=_DOMAIN_SCHEMAS["TotalCostIntelligenceAgent"])
+BIAS_DETECTOR_METADATA = replace(BIAS_DETECTOR_METADATA, input_schema=_DOMAIN_SCHEMAS["ProcurementBiasDetectorAgent"])
 
 # ---------------------------------------------------------------------------
 # Complete catalogue — all 15 agents

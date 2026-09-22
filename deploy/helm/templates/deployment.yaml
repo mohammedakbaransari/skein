@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "skein.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "skein.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "skein.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "skein.labels" . | nindent 8 }}
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+    spec:
+      serviceAccountName: skein-service-account
+
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: skein-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: health
+              containerPort: {{ .Values.skein.healthPort }}
+              protocol: TCP
+
+          env:
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llm.secretName }}
+                  key: {{ .Values.llm.secretKey }}
+            - name: LLM_PROVIDER
+              value: {{ .Values.llm.provider | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.llm.model | quote }}
+            - name: SKEIN_MAX_WORKERS
+              value: {{ .Values.skein.maxWorkers | quote }}
+            - name: SKEIN_GOVERNANCE_LOG_DIR
+              value: {{ .Values.skein.governanceLogDir | quote }}
+            - name: SKEIN_LOG_LEVEL
+              value: {{ .Values.skein.logLevel | quote }}
+            - name: SKEIN_LOG_JSON
+              value: {{ .Values.skein.logJson | quote }}
+            - name: SKEIN_HEALTH_PORT
+              value: {{ .Values.skein.healthPort | quote }}
+            - name: AGENT_DRY_RUN
+              value: {{ .Values.skein.dryRun | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: logs
+              mountPath: {{ .Values.persistence.mountPath }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: health
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: health
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+
+          startupProbe:
+            httpGet:
+              path: {{ .Values.startupProbe.path }}
+              port: health
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+      volumes:
+        - name: config
+          configMap:
+            name: skein-config
+        - name: logs
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "skein.fullname" . }}-logs
+          {{- else }}
+          emptyDir:
+            sizeLimit: 2Gi
+          {{- end }}
+
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}

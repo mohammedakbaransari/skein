@@ -230,7 +230,6 @@ def start_health_server(port: int = 8080, host: str = "0.0.0.0") -> None:
 
 def stop_health_server() -> None:
     """Gracefully stop the health server. Idempotent."""
-    global _server_instance
     if _server_instance:
         _server_instance.shutdown()
         log.info("[health] Server stopped")

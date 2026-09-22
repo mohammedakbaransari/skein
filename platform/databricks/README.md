@@ -2,6 +2,8 @@
 
 Run SKEIN procurement intelligence workflows on Databricks with Delta Lake memory and MLflow governance tracking.
 
+> **Validation status (2026-09-16):** adapter behavior is covered by fake-Spark unit/integration tests only. Unity Catalog permissions, concurrent writers, IDENTITY behavior, MLflow wiring, and restart recovery have not been validated against a live workspace. Complete roadmap R23 before production traffic.
+
 ## Prerequisites
 
 - Databricks Runtime 14.0+ (Python 3.11)
@@ -18,15 +20,16 @@ In your Databricks notebook or cluster init script:
 # Or: pip install pyyaml requests openai
 ```
 
-For the full framework, upload the SKEIN zip to DBFS:
+For the full framework, build an archive from the current checkout and upload it to DBFS:
 ```bash
-dbfs cp skein-framework-v2-FINAL.zip dbfs:/FileStore/skein/
+git archive --format=zip --output=skein.zip HEAD
+dbfs cp skein.zip dbfs:/FileStore/skein/
 ```
 
 Then in your notebook:
 ```python
 import zipfile, os
-with zipfile.ZipFile('/dbfs/FileStore/skein/skein-framework-v2-FINAL.zip') as z:
+with zipfile.ZipFile('/dbfs/FileStore/skein/skein.zip') as z:
     z.extractall('/tmp/skein')
 import sys
 sys.path.insert(0, '/tmp/skein/skein')
@@ -79,6 +82,8 @@ memory = DeltaTableMemoryStore(
 )
 memory.ensure_table_exists()
 ```
+
+For multi-tenant deployments, use a validated `TenantContext` per tenant and provision dedicated catalogs only when the physical-isolation profile is selected. Logical isolation remains the product default; catalog/container provisioning is outside this repository.
 
 ## MLflow Governance Tracking
 
@@ -137,3 +142,7 @@ gov = GovernanceLogger("/dbfs/tmp/skein/governance")
 ok  = gov.verify_chain("/dbfs/tmp/skein/governance/executions.jsonl")
 print(f"Chain integrity: {'OK' if ok else 'COMPROMISED'}")
 ```
+
+## Secrets and audit integration
+
+Choose a `SecretsProvider` through deployment configuration; do not hard-code tokens in notebooks. Environment, file, and Vault KV v2 adapters exist. Databricks Secrets integration is not implemented in this repository. Governance can additionally emit the vendor-neutral `AuditEvent` contract through an `AuditSink`; no live SIEM endpoint has been certified.

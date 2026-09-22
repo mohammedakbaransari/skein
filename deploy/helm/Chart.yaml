@@ -1,0 +1,16 @@
+# deploy/helm/Chart.yaml
+apiVersion: v2
+name: skein
+description: SKEIN — multi-agent procurement intelligence framework (agents, orchestration, resilience, observability, governance)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - procurement
+  - multi-agent
+  - llm
+home: https://github.com/mohammedakbaransari/skein
+sources:
+  - https://github.com/mohammedakbaransari/skein
+maintainers:
+  - name: Mohammed Akbar Ansari

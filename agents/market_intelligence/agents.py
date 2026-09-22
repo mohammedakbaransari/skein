@@ -89,6 +89,12 @@ class InstitutionalMemoryAgent(DecisionAgent):
         by_category: Dict[str, List] = {}
         for r in records:
             by_category.setdefault(r.get("category", "Unknown"), []).append(r)
+        # Retrieve previously captured patterns for these categories so new
+        # reasoning builds on institutional precedent instead of ignoring it.
+        precedent_patterns: List[Dict[str, Any]] = []
+        for category in by_category:
+            index = self.recall(f"pattern_index:{category}", session_id=task.session_id) or []
+            precedent_patterns.extend(index)
         return {
             "record_count": len(records),
             "categories": list(by_category.keys()),
@@ -97,14 +103,21 @@ class InstitutionalMemoryAgent(DecisionAgent):
                 100 * sum(1 for r in records if r.get("rationale_text")) / len(records), 1
             ) if records else 0.0,
             "sample_decisions": records[:5],  # first 5 for pattern priming
+            "precedent_patterns": precedent_patterns,
         }
 
     def reason(self, observations: Dict[str, Any], task: Task) -> str:
+        precedent_block = "\n".join(
+            f"  - [{p.get('category','?')}] {p.get('pattern_type','?')}: {p.get('decision_heuristic','')}"
+            for p in observations.get("precedent_patterns", [])
+        ) or "  No prior captured patterns for these categories."
         user = (
             f"Extract procurement reasoning patterns from {observations['record_count']} "
             f"decision records across {len(observations['categories'])} categories.\n\n"
             f"Categories: {', '.join(observations['categories'][:10])}\n"
             f"Decisions with documented rationale: {observations['has_rationale_pct']}%\n\n"
+            f"PREVIOUSLY CAPTURED PATTERNS FOR THESE CATEGORIES (institutional precedent):\n"
+            f"{precedent_block}\n\n"
             f"Sample decisions:\n{json.dumps(observations['sample_decisions'], indent=2)}\n\n"
             "Return JSON:\n"
             '{"patterns": [{"category": "...", "pattern_type": "...", '
@@ -119,15 +132,27 @@ class InstitutionalMemoryAgent(DecisionAgent):
                        task: Task) -> List[Finding]:
         parsed = self._parse_llm_json(reasoning) or {}
         patterns = parsed.get("patterns", [])
-        # Persist extracted patterns to institutional memory
+        # Persist extracted patterns to institutional memory, and maintain a
+        # per-category index so future observe() calls can recall them.
         for p in patterns:
-            key = f"pattern:{p.get('category','?')}:{p.get('pattern_type','?')}"
-            self.remember(key, p)
+            category = p.get("category", "?")
+            key = f"pattern:{category}:{p.get('pattern_type','?')}"
+            self.remember(key, p, session_id=task.session_id)
+            index_key = f"pattern_index:{category}"
+            index = self.recall(index_key, session_id=task.session_id) or []
+            if not any(existing.get("pattern_type") == p.get("pattern_type") for existing in index):
+                index = index + [p]
+                self.remember(index_key, index, session_id=task.session_id)
+        precedent_count = len(observations.get("precedent_patterns", []))
+        summary = f"Extracted {len(patterns)} reasoning patterns from {observations['record_count']} decisions"
+        if precedent_count:
+            summary += f"; built on {precedent_count} precedent pattern(s) from institutional memory"
         findings = [self._make_finding(
             finding_type="knowledge_patterns_extracted",
             severity=Severity.INFO,
-            summary=f"Extracted {len(patterns)} reasoning patterns from {observations['record_count']} decisions",
+            summary=summary,
             evidence={"patterns_count": len(patterns),
+                      "precedent_patterns_used": precedent_count,
                       "knowledge_gaps": parsed.get("knowledge_gaps", []),
                       "capture_recommendations": parsed.get("capture_recommendations", [])}
         )]
